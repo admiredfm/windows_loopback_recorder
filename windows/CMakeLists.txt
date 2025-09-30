@@ -42,6 +42,14 @@ set_target_properties(${PLUGIN_NAME} PROPERTIES
   CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 
+# Disable specific warnings that are treated as errors in MSVC
+if(MSVC)
+  target_compile_options(${PLUGIN_NAME} PRIVATE
+    /wd4244  # Disable warning C4244: conversion from 'type1' to 'type2', possible loss of data
+    /wd4267  # Disable warning C4267: conversion from 'size_t' to 'type', possible loss of data
+  )
+endif()
+
 # Source include directories and library dependencies. Add any plugin-specific
 # dependencies here.
 target_include_directories(${PLUGIN_NAME} INTERFACE
@@ -96,6 +104,14 @@ apply_standard_settings(${TEST_RUNNER})
 target_include_directories(${TEST_RUNNER} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(${TEST_RUNNER} PRIVATE flutter_wrapper_plugin)
 target_link_libraries(${TEST_RUNNER} PRIVATE gtest_main gmock)
+
+# Disable specific warnings for test runner as well
+if(MSVC)
+  target_compile_options(${TEST_RUNNER} PRIVATE
+    /wd4244  # Disable warning C4244: conversion from 'type1' to 'type2', possible loss of data
+    /wd4267  # Disable warning C4267: conversion from 'size_t' to 'type', possible loss of data
+  )
+endif()
 # flutter_wrapper_plugin has link dependencies on the Flutter DLL.
 add_custom_command(TARGET ${TEST_RUNNER} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different

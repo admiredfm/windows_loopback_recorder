@@ -18,6 +18,7 @@
 #include <memory>
 #include <sstream>
 #include <vector>
+#include <cstdint>
 #include <combaseapi.h>
 
 // Include algorithm after NOMINMAX to ensure std::max is available
@@ -456,7 +457,9 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
         if (!mixedBuffer.empty()) {
           std::lock_guard<std::mutex> lock(eventSinkMutex_);
           if (eventSink_) {
-            eventSink_->Success(flutter::EncodableValue(mixedBuffer));
+            // Convert std::vector<BYTE> to std::vector<uint8_t> for Flutter
+            std::vector<uint8_t> flutterBuffer(mixedBuffer.begin(), mixedBuffer.end());
+            eventSink_->Success(flutter::EncodableValue(flutterBuffer));
           }
         }
       }
@@ -483,7 +486,7 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
   UINT32 bufferSize = maxFrames * bytesPerFrame;
 
   outputBuffer.resize(bufferSize);
-  std::fill(outputBuffer.begin(), outputBuffer.end(), 0);
+  std::fill(outputBuffer.begin(), outputBuffer.end(), BYTE(0));
 
   // Mix system audio (if available)
   if (systemBuffer && systemFrames > 0) {
