@@ -70,4 +70,11 @@ class WindowsLoopbackRecorder {
   /// Returns a Stream of Uint8List containing mixed audio data
   /// from system output and microphone input
   Stream<Uint8List> get audioStream => _platform.audioStream;
+
+  /// Get the actual audio format being used
+  ///
+  /// Returns the AudioConfig with actual parameters from the system
+  Future<AudioConfig> getAudioFormat() {
+    return _platform.getAudioFormat();
+  }
 }

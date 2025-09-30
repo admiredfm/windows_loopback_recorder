@@ -13,6 +13,7 @@
 #include <sstream>
 #include <vector>
 #include <cstdint>
+#include <cstring>
 #include <algorithm>
 
 namespace windows_loopback_recorder {
@@ -192,6 +193,21 @@ void WindowsLoopbackRecorderPlugin::HandleMethodCall(
       device_list.push_back(flutter::EncodableValue(device));
     }
     result->Success(flutter::EncodableValue(device_list));
+
+  } else if (method_call.method_name() == "getAudioFormat") {
+    flutter::EncodableMap format_info;
+    if (systemWaveFormat_) {
+      // Always return 16-bit format since we convert everything to 16-bit
+      format_info[flutter::EncodableValue("sampleRate")] = flutter::EncodableValue(static_cast<int32_t>(systemWaveFormat_->nSamplesPerSec));
+      format_info[flutter::EncodableValue("channels")] = flutter::EncodableValue(static_cast<int32_t>(systemWaveFormat_->nChannels));
+      format_info[flutter::EncodableValue("bitsPerSample")] = flutter::EncodableValue(16);
+    } else {
+      // Default format
+      format_info[flutter::EncodableValue("sampleRate")] = flutter::EncodableValue(44100);
+      format_info[flutter::EncodableValue("channels")] = flutter::EncodableValue(2);
+      format_info[flutter::EncodableValue("bitsPerSample")] = flutter::EncodableValue(16);
+    }
+    result->Success(flutter::EncodableValue(format_info));
 
   } else {
     result->NotImplemented();
@@ -471,37 +487,137 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
 void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, const BYTE* micBuffer,
                                                    UINT32 systemFrames, UINT32 micFrames,
                                                    std::vector<BYTE>& outputBuffer) {
-  // For simplicity, we'll use the larger frame count and mix the audio samples
+  if (!systemWaveFormat_) {
+    return;
+  }
+
+  // Use the actual system audio format parameters
+  UINT32 bytesPerFrame = systemWaveFormat_->nBlockAlign;
   UINT32 maxFrames = (systemFrames > micFrames) ? systemFrames : micFrames;
-  UINT32 bytesPerSample = audioConfig_.bitsPerSample / 8;
-  UINT32 bytesPerFrame = audioConfig_.channels * bytesPerSample;
   UINT32 bufferSize = maxFrames * bytesPerFrame;
 
   outputBuffer.resize(bufferSize);
   std::fill(outputBuffer.begin(), outputBuffer.end(), BYTE(0));
 
-  // Only support 16-bit audio for now to avoid complexity
-  if (audioConfig_.bitsPerSample != 16) {
-    return;
-  }
+  // Handle different audio formats
+  if (systemWaveFormat_->wBitsPerSample == 16) {
+    // 16-bit PCM
+    UINT32 bytesPerSample = 2;
 
-  // Mix system audio (if available)
-  if (systemBuffer && systemFrames > 0) {
-    UINT32 systemBufferSize = systemFrames * bytesPerFrame;
-    for (UINT32 i = 0; i < systemBufferSize && i < bufferSize; i += bytesPerSample) {
-      int16_t sample = *reinterpret_cast<const int16_t*>(&systemBuffer[i]);
-      int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[i]);
-      *outputSample = static_cast<int16_t>(*outputSample + sample / 2); // Reduce volume by half for mixing
+    // Mix system audio (if available)
+    if (systemBuffer && systemFrames > 0) {
+      for (UINT32 frame = 0; frame < systemFrames && frame < maxFrames; frame++) {
+        for (UINT32 channel = 0; channel < systemWaveFormat_->nChannels; channel++) {
+          UINT32 sampleIndex = frame * systemWaveFormat_->nChannels + channel;
+          UINT32 byteIndex = sampleIndex * bytesPerSample;
+
+          if (byteIndex + 1 < bufferSize) {
+            int16_t sample = *reinterpret_cast<const int16_t*>(&systemBuffer[byteIndex]);
+            int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[byteIndex]);
+            *outputSample = static_cast<int16_t>(sample / 2); // Start with system audio at half volume
+          }
+        }
+      }
     }
-  }
 
-  // Mix microphone audio (if available)
-  if (micBuffer && micFrames > 0) {
-    UINT32 micBufferSize = micFrames * bytesPerFrame;
-    for (UINT32 i = 0; i < micBufferSize && i < bufferSize; i += bytesPerSample) {
-      int16_t sample = *reinterpret_cast<const int16_t*>(&micBuffer[i]);
-      int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[i]);
-      *outputSample = static_cast<int16_t>(*outputSample + sample / 2); // Reduce volume by half for mixing
+    // Add microphone audio (if available)
+    if (micBuffer && micFrames > 0 && micWaveFormat_) {
+      for (UINT32 frame = 0; frame < micFrames && frame < maxFrames; frame++) {
+        for (UINT32 channel = 0; channel < std::min(micWaveFormat_->nChannels, systemWaveFormat_->nChannels); channel++) {
+          UINT32 micSampleIndex = frame * micWaveFormat_->nChannels + channel;
+          UINT32 micByteIndex = micSampleIndex * bytesPerSample;
+
+          UINT32 outputSampleIndex = frame * systemWaveFormat_->nChannels + channel;
+          UINT32 outputByteIndex = outputSampleIndex * bytesPerSample;
+
+          if (micByteIndex + 1 < micFrames * micWaveFormat_->nBlockAlign &&
+              outputByteIndex + 1 < bufferSize) {
+            int16_t micSample = *reinterpret_cast<const int16_t*>(&micBuffer[micByteIndex]);
+            int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[outputByteIndex]);
+            *outputSample = static_cast<int16_t>(*outputSample + micSample / 2); // Add mic at half volume
+          }
+        }
+      }
+    }
+
+    // Update format info for 16-bit audio
+    audioConfig_.sampleRate = systemWaveFormat_->nSamplesPerSec;
+    audioConfig_.channels = systemWaveFormat_->nChannels;
+    audioConfig_.bitsPerSample = 16;
+
+  } else if (systemWaveFormat_->wBitsPerSample == 32) {
+    // 32-bit float (common on modern Windows)
+    // Convert to 16-bit for consistency
+    UINT32 outputSize = maxFrames * systemWaveFormat_->nChannels * 2; // 16-bit output
+    outputBuffer.resize(outputSize);
+
+    if (systemBuffer && systemFrames > 0) {
+      for (UINT32 frame = 0; frame < systemFrames && frame < maxFrames; frame++) {
+        for (UINT32 channel = 0; channel < systemWaveFormat_->nChannels; channel++) {
+          UINT32 floatSampleIndex = frame * systemWaveFormat_->nChannels + channel;
+          UINT32 floatByteIndex = floatSampleIndex * 4; // 4 bytes per float
+
+          UINT32 outputSampleIndex = frame * systemWaveFormat_->nChannels + channel;
+          UINT32 outputByteIndex = outputSampleIndex * 2; // 2 bytes per 16-bit sample
+
+          if (floatByteIndex + 3 < systemFrames * systemWaveFormat_->nBlockAlign &&
+              outputByteIndex + 1 < outputBuffer.size()) {
+            float floatSample = *reinterpret_cast<const float*>(&systemBuffer[floatByteIndex]);
+            // Convert float (-1.0 to 1.0) to 16-bit PCM (-32768 to 32767)
+            int16_t pcmSample = static_cast<int16_t>(floatSample * 32767.0f / 2.0f); // Half volume
+            *reinterpret_cast<int16_t*>(&outputBuffer[outputByteIndex]) = pcmSample;
+          }
+        }
+      }
+    }
+
+    // Add microphone (assuming 16-bit or also convert if float)
+    if (micBuffer && micFrames > 0 && micWaveFormat_) {
+      for (UINT32 frame = 0; frame < micFrames && frame < maxFrames; frame++) {
+        for (UINT32 channel = 0; channel < std::min(micWaveFormat_->nChannels, systemWaveFormat_->nChannels); channel++) {
+          UINT32 outputSampleIndex = frame * systemWaveFormat_->nChannels + channel;
+          UINT32 outputByteIndex = outputSampleIndex * 2;
+
+          if (outputByteIndex + 1 < outputBuffer.size()) {
+            int16_t micSample;
+
+            if (micWaveFormat_->wBitsPerSample == 16) {
+              UINT32 micSampleIndex = frame * micWaveFormat_->nChannels + channel;
+              UINT32 micByteIndex = micSampleIndex * 2;
+              if (micByteIndex + 1 < micFrames * micWaveFormat_->nBlockAlign) {
+                micSample = *reinterpret_cast<const int16_t*>(&micBuffer[micByteIndex]);
+              } else {
+                micSample = 0;
+              }
+            } else if (micWaveFormat_->wBitsPerSample == 32) {
+              UINT32 micSampleIndex = frame * micWaveFormat_->nChannels + channel;
+              UINT32 micByteIndex = micSampleIndex * 4;
+              if (micByteIndex + 3 < micFrames * micWaveFormat_->nBlockAlign) {
+                float micFloatSample = *reinterpret_cast<const float*>(&micBuffer[micByteIndex]);
+                micSample = static_cast<int16_t>(micFloatSample * 32767.0f);
+              } else {
+                micSample = 0;
+              }
+            } else {
+              micSample = 0;
+            }
+
+            int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[outputByteIndex]);
+            *outputSample = static_cast<int16_t>(*outputSample + micSample / 2);
+          }
+        }
+      }
+    }
+
+    // Update the format info for consistent 16-bit output
+    audioConfig_.sampleRate = systemWaveFormat_->nSamplesPerSec;
+    audioConfig_.channels = systemWaveFormat_->nChannels;
+    audioConfig_.bitsPerSample = 16;
+  } else {
+    // Unsupported format, just copy system audio
+    if (systemBuffer && systemFrames > 0) {
+      UINT32 copySize = std::min(systemFrames * bytesPerFrame, bufferSize);
+      std::memcpy(outputBuffer.data(), systemBuffer, copySize);
     }
   }
 }

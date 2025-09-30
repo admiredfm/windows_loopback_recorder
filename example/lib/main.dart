@@ -36,6 +36,7 @@ class _MyAppState extends State<MyApp> {
   bool _isPlaying = false;
   Duration _playbackPosition = Duration.zero;
   Duration _playbackDuration = Duration.zero;
+  AudioConfig? _actualAudioFormat;
 
   @override
   void initState() {
@@ -94,6 +95,16 @@ class _MyAppState extends State<MyApp> {
         // Collect audio data during recording
         if (_recordingState == RecordingState.recording) {
           _audioChunks.add(Uint8List.fromList(audioData));
+
+          // Debug: Check if audio data contains actual audio (not silence)
+          if (_audioChunks.length % 100 == 0) { // Every 100 chunks
+            bool hasSoundData = audioData.any((byte) => byte != 0);
+            if (hasSoundData) {
+              print('音频数据正常 - 块 ${_audioChunks.length}: ${audioData.length} bytes, 包含音频数据');
+            } else {
+              print('警告: 音频数据块 ${_audioChunks.length} 全为静音');
+            }
+          }
         }
 
         setState(() {
@@ -156,7 +167,9 @@ class _MyAppState extends State<MyApp> {
       );
 
       if (success) {
-        _setStatusMessage('开始录制成功');
+        // 获取实际音频格式
+        _actualAudioFormat = await _recorder.getAudioFormat();
+        _setStatusMessage('开始录制成功 - 格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
         setState(() {
           _audioChunkCount = 0; // 重置计数器
           _audioChunks.clear(); // 清空之前的录音数据
@@ -209,6 +222,8 @@ class _MyAppState extends State<MyApp> {
         // 自动保存录音文件
         if (_audioChunks.isNotEmpty) {
           await _saveRecording();
+        } else {
+          _setStatusMessage('停止录制成功，但没有录制到音频数据');
         }
       } else {
         _setStatusMessage('停止录制失败');
@@ -251,12 +266,29 @@ class _MyAppState extends State<MyApp> {
     // 计算总音频数据大小
     int totalDataSize = _audioChunks.fold(0, (sum, chunk) => sum + chunk.length);
 
-    // WAV文件参数
-    const int sampleRate = 44100;
-    const int channels = 2;
-    const int bitsPerSample = 16;
-    const int byteRate = sampleRate * channels * (bitsPerSample ~/ 8);
-    const int blockAlign = channels * (bitsPerSample ~/ 8);
+    // 使用实际的音频格式参数
+    final format = _actualAudioFormat ?? AudioConfig();
+    final int sampleRate = format.sampleRate;
+    final int channels = format.channels;
+    final int bitsPerSample = format.bitsPerSample;
+    final int byteRate = sampleRate * channels * (bitsPerSample ~/ 8);
+    final int blockAlign = channels * (bitsPerSample ~/ 8);
+
+    print('创建WAV文件 - 采样率: ${sampleRate}Hz, 声道: $channels, 位深度: ${bitsPerSample}bit');
+    print('音频数据大小: $totalDataSize bytes, 音频块数: ${_audioChunks.length}');
+
+    // 检查音频数据完整性
+    int nonZeroChunks = 0;
+    for (final chunk in _audioChunks) {
+      if (chunk.any((byte) => byte != 0)) {
+        nonZeroChunks++;
+      }
+    }
+    print('包含音频数据的块数: $nonZeroChunks / ${_audioChunks.length}');
+
+    if (nonZeroChunks == 0) {
+      print('警告: 所有音频数据都是静音！');
+    }
 
     final file = File(filePath);
     final sink = file.openWrite();
@@ -431,6 +463,11 @@ class _MyAppState extends State<MyApp> {
                       SizedBox(height: 8),
                       Text('当前状态: ${_getStateDisplayText()}'),
                       Text('音频块数量: $_audioChunkCount'),
+                      if (_actualAudioFormat != null) ...[
+                        SizedBox(height: 4),
+                        Text('音频格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit',
+                             style: TextStyle(color: Colors.blue.shade600, fontSize: 12)),
+                      ],
                       if (_savedFilePath != null) ...[
                         SizedBox(height: 4),
                         Text('已保存文件: ${path.basename(_savedFilePath!)}',

@@ -38,6 +38,9 @@ class MockWindowsLoopbackRecorderPlatform
 
   @override
   Stream<Uint8List> get audioStream => Stream.fromIterable([Uint8List(0)]);
+
+  @override
+  Future<AudioConfig> getAudioFormat() => Future.value(AudioConfig());
 }
 
 void main() {

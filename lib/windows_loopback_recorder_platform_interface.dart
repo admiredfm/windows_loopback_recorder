@@ -22,6 +22,14 @@ class AudioConfig {
     this.bitsPerSample = 16,
   });
 
+  factory AudioConfig.fromMap(Map<String, dynamic> map) {
+    return AudioConfig(
+      sampleRate: map['sampleRate'] ?? 44100,
+      channels: map['channels'] ?? 2,
+      bitsPerSample: map['bitsPerSample'] ?? 16,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'sampleRate': sampleRate,
@@ -99,5 +107,10 @@ abstract class WindowsLoopbackRecorderPlatform extends PlatformInterface {
   /// Set up audio stream listener
   Stream<Uint8List> get audioStream {
     throw UnimplementedError('audioStream has not been implemented.');
+  }
+
+  /// Get actual audio format being used
+  Future<AudioConfig> getAudioFormat() {
+    throw UnimplementedError('getAudioFormat() has not been implemented.');
   }
 }

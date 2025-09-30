@@ -86,6 +86,15 @@ class MethodChannelWindowsLoopbackRecorder extends WindowsLoopbackRecorderPlatfo
   @override
   Stream<Uint8List> get audioStream => _audioStreamController.stream;
 
+  @override
+  Future<AudioConfig> getAudioFormat() async {
+    final result = await methodChannel.invokeMethod<Map<String, dynamic>>('getAudioFormat');
+    if (result != null) {
+      return AudioConfig.fromMap(result);
+    }
+    return AudioConfig();
+  }
+
   void _setupAudioStream() {
     _audioStreamSubscription = eventChannel.receiveBroadcastStream().listen(
       (dynamic data) {
