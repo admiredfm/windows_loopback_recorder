@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:windows_loopback_recorder/windows_loopback_recorder.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+import 'package:audioplayers/audioplayers.dart';
 
 void main() {
   runApp(const MyApp());
@@ -24,6 +29,14 @@ class _MyAppState extends State<MyApp> {
   StreamSubscription<Uint8List>? _audioStreamSubscription;
   String _statusMessage = '';
 
+  // Audio recording and playback
+  final List<Uint8List> _audioChunks = [];
+  String? _savedFilePath;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false;
+  Duration _playbackPosition = Duration.zero;
+  Duration _playbackDuration = Duration.zero;
+
   @override
   void initState() {
     super.initState();
@@ -34,6 +47,7 @@ class _MyAppState extends State<MyApp> {
   void dispose() {
     _audioStreamSubscription?.cancel();
     _recorder.stopRecording();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -76,6 +90,12 @@ class _MyAppState extends State<MyApp> {
     _audioStreamSubscription = _recorder.audioStream.listen(
       (audioData) {
         if (!mounted) return;
+
+        // Collect audio data during recording
+        if (_recordingState == RecordingState.recording) {
+          _audioChunks.add(Uint8List.fromList(audioData));
+        }
+
         setState(() {
           _audioChunkCount++;
         });
@@ -139,6 +159,8 @@ class _MyAppState extends State<MyApp> {
         _setStatusMessage('开始录制成功');
         setState(() {
           _audioChunkCount = 0; // 重置计数器
+          _audioChunks.clear(); // 清空之前的录音数据
+          _savedFilePath = null; // 清空保存的文件路径
         });
       } else {
         _setStatusMessage('开始录制失败');
@@ -183,12 +205,176 @@ class _MyAppState extends State<MyApp> {
       bool success = await _recorder.stopRecording();
       if (success) {
         _setStatusMessage('停止录制成功，共录制 $_audioChunkCount 个音频块');
+
+        // 自动保存录音文件
+        if (_audioChunks.isNotEmpty) {
+          await _saveRecording();
+        }
       } else {
         _setStatusMessage('停止录制失败');
       }
       await _updateRecordingState();
     } catch (e) {
       _setStatusMessage('停止录制出错: $e');
+    }
+  }
+
+  // 保存录音为WAV文件
+  Future<void> _saveRecording() async {
+    try {
+      if (_audioChunks.isEmpty) {
+        _setStatusMessage('没有录音数据可保存');
+        return;
+      }
+
+      // 获取Documents目录
+      final directory = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'recording_$timestamp.wav';
+      final filePath = path.join(directory.path, fileName);
+
+      // 创建WAV文件
+      await _createWavFile(filePath);
+
+      setState(() {
+        _savedFilePath = filePath;
+      });
+
+      _setStatusMessage('录音已保存到: $fileName');
+    } catch (e) {
+      _setStatusMessage('保存录音失败: $e');
+    }
+  }
+
+  // 创建WAV文件
+  Future<void> _createWavFile(String filePath) async {
+    // 计算总音频数据大小
+    int totalDataSize = _audioChunks.fold(0, (sum, chunk) => sum + chunk.length);
+
+    // WAV文件参数
+    const int sampleRate = 44100;
+    const int channels = 2;
+    const int bitsPerSample = 16;
+    const int byteRate = sampleRate * channels * (bitsPerSample ~/ 8);
+    const int blockAlign = channels * (bitsPerSample ~/ 8);
+
+    final file = File(filePath);
+    final sink = file.openWrite();
+
+    // 写入WAV头部
+    final header = ByteData(44);
+
+    // RIFF Header
+    header.setUint8(0, 0x52); // 'R'
+    header.setUint8(1, 0x49); // 'I'
+    header.setUint8(2, 0x46); // 'F'
+    header.setUint8(3, 0x46); // 'F'
+    header.setUint32(4, totalDataSize + 36, Endian.little); // File size - 8
+
+    // WAVE Header
+    header.setUint8(8, 0x57);   // 'W'
+    header.setUint8(9, 0x41);   // 'A'
+    header.setUint8(10, 0x56);  // 'V'
+    header.setUint8(11, 0x45);  // 'E'
+
+    // Format Chunk
+    header.setUint8(12, 0x66);  // 'f'
+    header.setUint8(13, 0x6D);  // 'm'
+    header.setUint8(14, 0x74);  // 't'
+    header.setUint8(15, 0x20);  // ' '
+    header.setUint32(16, 16, Endian.little);      // Format chunk size
+    header.setUint16(20, 1, Endian.little);       // PCM format
+    header.setUint16(22, channels, Endian.little);
+    header.setUint32(24, sampleRate, Endian.little);
+    header.setUint32(28, byteRate, Endian.little);
+    header.setUint16(32, blockAlign, Endian.little);
+    header.setUint16(34, bitsPerSample, Endian.little);
+
+    // Data Chunk
+    header.setUint8(36, 0x64);  // 'd'
+    header.setUint8(37, 0x61);  // 'a'
+    header.setUint8(38, 0x74);  // 't'
+    header.setUint8(39, 0x61);  // 'a'
+    header.setUint32(40, totalDataSize, Endian.little);
+
+    // 写入头部
+    sink.add(header.buffer.asUint8List());
+
+    // 写入音频数据
+    for (final chunk in _audioChunks) {
+      sink.add(chunk);
+    }
+
+    await sink.close();
+  }
+
+  // 播放录音
+  Future<void> _playRecording() async {
+    try {
+      if (_savedFilePath == null || !File(_savedFilePath!).existsSync()) {
+        _setStatusMessage('没有找到录音文件');
+        return;
+      }
+
+      await _audioPlayer.play(DeviceFileSource(_savedFilePath!));
+      setState(() {
+        _isPlaying = true;
+      });
+      _setStatusMessage('开始播放录音');
+
+      // 监听播放状态
+      _audioPlayer.onPlayerStateChanged.listen((PlayerState state) {
+        if (mounted) {
+          setState(() {
+            _isPlaying = state == PlayerState.playing;
+          });
+        }
+      });
+
+      // 监听播放位置
+      _audioPlayer.onPositionChanged.listen((Duration position) {
+        if (mounted) {
+          setState(() {
+            _playbackPosition = position;
+          });
+        }
+      });
+
+      // 监听音频时长
+      _audioPlayer.onDurationChanged.listen((Duration duration) {
+        if (mounted) {
+          setState(() {
+            _playbackDuration = duration;
+          });
+        }
+      });
+
+      // 监听播放完成
+      _audioPlayer.onPlayerComplete.listen((_) {
+        if (mounted) {
+          setState(() {
+            _isPlaying = false;
+            _playbackPosition = Duration.zero;
+          });
+          _setStatusMessage('播放完成');
+        }
+      });
+    } catch (e) {
+      _setStatusMessage('播放录音失败: $e');
+    }
+  }
+
+  // 停止播放
+  Future<void> _stopPlayback() async {
+    try {
+      await _audioPlayer.stop();
+      setState(() {
+        _isPlaying = false;
+        _playbackPosition = Duration.zero;
+      });
+      _setStatusMessage('停止播放');
+    } catch (e) {
+      _setStatusMessage('停止播放失败: $e');
     }
   }
 
@@ -245,6 +431,16 @@ class _MyAppState extends State<MyApp> {
                       SizedBox(height: 8),
                       Text('当前状态: ${_getStateDisplayText()}'),
                       Text('音频块数量: $_audioChunkCount'),
+                      if (_savedFilePath != null) ...[
+                        SizedBox(height: 4),
+                        Text('已保存文件: ${path.basename(_savedFilePath!)}',
+                             style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w500)),
+                      ],
+                      if (_isPlaying) ...[
+                        SizedBox(height: 4),
+                        Text('播放进度: ${_playbackPosition.inSeconds}s / ${_playbackDuration.inSeconds}s',
+                             style: TextStyle(color: Colors.blue.shade700)),
+                      ],
                       if (_statusMessage.isNotEmpty) ...[
                         SizedBox(height: 8),
                         Container(
@@ -300,6 +496,31 @@ class _MyAppState extends State<MyApp> {
                             icon: Icon(Icons.stop),
                             label: Text('停止录制'),
                             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                          ),
+                        ],
+                      ),
+
+                      SizedBox(height: 16),
+
+                      // 播放控制
+                      Text('播放控制', style: Theme.of(context).textTheme.titleMedium),
+                      SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: (_savedFilePath != null && !_isPlaying && _recordingState == RecordingState.idle)
+                                ? _playRecording : null,
+                            icon: Icon(Icons.play_arrow),
+                            label: Text('播放录音'),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: _isPlaying ? _stopPlayback : null,
+                            icon: Icon(Icons.stop),
+                            label: Text('停止播放'),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
                           ),
                         ],
                       ),
