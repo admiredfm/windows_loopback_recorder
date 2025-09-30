@@ -522,8 +522,9 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
 
     // Add microphone audio (if available)
     if (micBuffer && micFrames > 0 && micWaveFormat_) {
+      UINT32 minChannels = (micWaveFormat_->nChannels < systemWaveFormat_->nChannels) ? micWaveFormat_->nChannels : systemWaveFormat_->nChannels;
       for (UINT32 frame = 0; frame < micFrames && frame < maxFrames; frame++) {
-        for (UINT32 channel = 0; channel < std::min(micWaveFormat_->nChannels, systemWaveFormat_->nChannels); channel++) {
+        for (UINT32 channel = 0; channel < minChannels; channel++) {
           UINT32 micSampleIndex = frame * micWaveFormat_->nChannels + channel;
           UINT32 micByteIndex = micSampleIndex * bytesPerSample;
 
@@ -573,8 +574,9 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
 
     // Add microphone (assuming 16-bit or also convert if float)
     if (micBuffer && micFrames > 0 && micWaveFormat_) {
+      UINT32 minChannels = (micWaveFormat_->nChannels < systemWaveFormat_->nChannels) ? micWaveFormat_->nChannels : systemWaveFormat_->nChannels;
       for (UINT32 frame = 0; frame < micFrames && frame < maxFrames; frame++) {
-        for (UINT32 channel = 0; channel < std::min(micWaveFormat_->nChannels, systemWaveFormat_->nChannels); channel++) {
+        for (UINT32 channel = 0; channel < minChannels; channel++) {
           UINT32 outputSampleIndex = frame * systemWaveFormat_->nChannels + channel;
           UINT32 outputByteIndex = outputSampleIndex * 2;
 
@@ -616,7 +618,8 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
   } else {
     // Unsupported format, just copy system audio
     if (systemBuffer && systemFrames > 0) {
-      UINT32 copySize = std::min(systemFrames * bytesPerFrame, bufferSize);
+      UINT32 sourceSize = systemFrames * bytesPerFrame;
+      UINT32 copySize = (sourceSize < bufferSize) ? sourceSize : bufferSize;
       std::memcpy(outputBuffer.data(), systemBuffer, copySize);
     }
   }
