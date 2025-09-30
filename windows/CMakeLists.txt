@@ -24,7 +24,6 @@ list(APPEND PLUGIN_SOURCES
 # Define the plugin library target. Its name must not be changed (see comment
 # on PLUGIN_NAME above).
 add_library(${PLUGIN_NAME} SHARED
-  "include/windows_loopback_recorder/windows_loopback_recorder_plugin_c_api.h"
   "windows_loopback_recorder_plugin_c_api.cpp"
   ${PLUGIN_SOURCES}
 )

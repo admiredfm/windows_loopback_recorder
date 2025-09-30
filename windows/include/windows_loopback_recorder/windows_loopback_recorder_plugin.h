@@ -5,6 +5,7 @@
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/event_channel.h>
 #include <flutter/event_stream_handler_functions.h>
+#include <flutter_plugin_registrar.h>
 
 #include <memory>
 #include <thread>
@@ -103,5 +104,23 @@ class WindowsLoopbackRecorderPlugin : public flutter::Plugin {
 };
 
 }  // namespace windows_loopback_recorder
+
+// C API for Flutter registration
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef FLUTTER_PLUGIN_IMPL
+#define FLUTTER_PLUGIN_EXPORT __declspec(dllexport)
+#else
+#define FLUTTER_PLUGIN_EXPORT __declspec(dllimport)
+#endif
+
+FLUTTER_PLUGIN_EXPORT void WindowsLoopbackRecorderPluginRegisterWithRegistrar(
+    FlutterDesktopPluginRegistrarRef registrar);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // FLUTTER_PLUGIN_WINDOWS_LOOPBACK_RECORDER_PLUGIN_H_
