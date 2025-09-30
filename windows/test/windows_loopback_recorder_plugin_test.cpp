@@ -8,7 +8,7 @@
 #include <string>
 #include <variant>
 
-#include "windows_loopback_recorder_plugin.h"
+#include "windows_loopback_recorder_plugin_impl.h"
 
 namespace windows_loopback_recorder {
 namespace test {

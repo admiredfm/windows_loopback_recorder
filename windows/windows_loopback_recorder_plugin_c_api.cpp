@@ -2,7 +2,7 @@
 
 #include <flutter/plugin_registrar_windows.h>
 
-#include "windows_loopback_recorder_plugin.h"
+#include "windows_loopback_recorder_plugin_impl.h"
 
 void WindowsLoopbackRecorderPluginCApiRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar) {
