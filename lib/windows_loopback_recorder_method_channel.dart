@@ -88,9 +88,20 @@ class MethodChannelWindowsLoopbackRecorder extends WindowsLoopbackRecorderPlatfo
 
   @override
   Future<AudioConfig> getAudioFormat() async {
-    final result = await methodChannel.invokeMethod<Map<String, dynamic>>('getAudioFormat');
-    if (result != null) {
-      return AudioConfig.fromMap(result);
+    try {
+      final result = await methodChannel.invokeMethod('getAudioFormat');
+      if (result != null && result is Map) {
+        // Convert to Map<String, dynamic> safely
+        final Map<String, dynamic> formatMap = {};
+        result.forEach((key, value) {
+          if (key is String) {
+            formatMap[key] = value;
+          }
+        });
+        return AudioConfig.fromMap(formatMap);
+      }
+    } catch (e) {
+      debugPrint('Error getting audio format: $e');
     }
     return AudioConfig();
   }

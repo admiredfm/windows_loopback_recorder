@@ -24,9 +24,9 @@ class AudioConfig {
 
   factory AudioConfig.fromMap(Map<String, dynamic> map) {
     return AudioConfig(
-      sampleRate: map['sampleRate'] ?? 44100,
-      channels: map['channels'] ?? 2,
-      bitsPerSample: map['bitsPerSample'] ?? 16,
+      sampleRate: (map['sampleRate'] is int) ? map['sampleRate'] : 44100,
+      channels: (map['channels'] is int) ? map['channels'] : 2,
+      bitsPerSample: (map['bitsPerSample'] is int) ? map['bitsPerSample'] : 16,
     );
   }
 

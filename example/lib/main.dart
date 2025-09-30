@@ -159,23 +159,37 @@ class _MyAppState extends State<MyApp> {
         }
       }
 
-      // 开始录制
+      // 开始录制 - 使用高质量音频配置以获得最佳音质
       bool success = await _recorder.startRecording(
         config: AudioConfig(
-          sampleRate: 16000,
-          channels: 1,
-          bitsPerSample: 16,
+          sampleRate: 44100,  // 使用标准CD质量采样率
+          channels: 2,        // 立体声以保留音频空间信息
+          bitsPerSample: 16,  // 16位深度平衡质量和文件大小
         ),
       );
 
       if (success) {
-        // 获取实际音频格式
-        _actualAudioFormat = await _recorder.getAudioFormat();
-        _setStatusMessage('开始录制成功 - 格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
+        _setStatusMessage('开始录制成功');
         setState(() {
           _audioChunkCount = 0; // 重置计数器
           _audioChunks.clear(); // 清空之前的录音数据
           _savedFilePath = null; // 清空保存的文件路径
+        });
+
+        // 延迟获取音频格式，避免时序问题
+        Timer(Duration(milliseconds: 500), () async {
+          try {
+            _actualAudioFormat = await _recorder.getAudioFormat();
+            if (mounted) {
+              _setStatusMessage('录制中 - 格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
+            }
+          } catch (e) {
+            // 如果获取格式失败，使用默认配置
+            _actualAudioFormat = AudioConfig(sampleRate: 44100, channels: 2, bitsPerSample: 16);
+            if (mounted) {
+              _setStatusMessage('获取音频格式失败，使用默认格式: $e');
+            }
+          }
         });
       } else {
         _setStatusMessage('开始录制失败');
