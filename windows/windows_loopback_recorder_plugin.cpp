@@ -1,11 +1,5 @@
 #include "windows_loopback_recorder_plugin_impl.h"
 
-// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
-#define NOMINMAX
-
-// This must be included before many other Windows headers.
-#include <windows.h>
-
 // For getPlatformVersion; remove unless needed for your plugin implementation.
 #include <VersionHelpers.h>
 
@@ -19,9 +13,6 @@
 #include <sstream>
 #include <vector>
 #include <cstdint>
-#include <combaseapi.h>
-
-// Include algorithm after NOMINMAX to ensure std::max is available
 #include <algorithm>
 
 namespace windows_loopback_recorder {
@@ -482,25 +473,35 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
                                                    std::vector<BYTE>& outputBuffer) {
   // For simplicity, we'll use the larger frame count and mix the audio samples
   UINT32 maxFrames = (systemFrames > micFrames) ? systemFrames : micFrames;
-  UINT32 bytesPerFrame = audioConfig_.channels * (audioConfig_.bitsPerSample / 8);
+  UINT32 bytesPerSample = audioConfig_.bitsPerSample / 8;
+  UINT32 bytesPerFrame = audioConfig_.channels * bytesPerSample;
   UINT32 bufferSize = maxFrames * bytesPerFrame;
 
   outputBuffer.resize(bufferSize);
   std::fill(outputBuffer.begin(), outputBuffer.end(), BYTE(0));
 
+  // Only support 16-bit audio for now to avoid complexity
+  if (audioConfig_.bitsPerSample != 16) {
+    return;
+  }
+
   // Mix system audio (if available)
   if (systemBuffer && systemFrames > 0) {
-    for (UINT32 i = 0; i < systemFrames * bytesPerFrame && i < bufferSize; i += 2) {
+    UINT32 systemBufferSize = systemFrames * bytesPerFrame;
+    for (UINT32 i = 0; i < systemBufferSize && i < bufferSize; i += bytesPerSample) {
       int16_t sample = *reinterpret_cast<const int16_t*>(&systemBuffer[i]);
-      *reinterpret_cast<int16_t*>(&outputBuffer[i]) += sample / 2; // Reduce volume by half for mixing
+      int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[i]);
+      *outputSample = static_cast<int16_t>(*outputSample + sample / 2); // Reduce volume by half for mixing
     }
   }
 
   // Mix microphone audio (if available)
   if (micBuffer && micFrames > 0) {
-    for (UINT32 i = 0; i < micFrames * bytesPerFrame && i < bufferSize; i += 2) {
+    UINT32 micBufferSize = micFrames * bytesPerFrame;
+    for (UINT32 i = 0; i < micBufferSize && i < bufferSize; i += bytesPerSample) {
       int16_t sample = *reinterpret_cast<const int16_t*>(&micBuffer[i]);
-      *reinterpret_cast<int16_t*>(&outputBuffer[i]) += sample / 2; // Reduce volume by half for mixing
+      int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[i]);
+      *outputSample = static_cast<int16_t>(*outputSample + sample / 2); // Reduce volume by half for mixing
     }
   }
 }

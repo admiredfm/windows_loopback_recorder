@@ -19,7 +19,6 @@ set(PLUGIN_NAME "windows_loopback_recorder_plugin")
 # Any new source files that you add to the plugin should be added here.
 list(APPEND PLUGIN_SOURCES
   "windows_loopback_recorder_plugin.cpp"
-  "windows_loopback_recorder_plugin_impl.h"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -62,6 +61,7 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   oleaut32
   uuid
   advapi32
+  propsys
 )
 
 # List of absolute paths to libraries that should be bundled with the plugin.
