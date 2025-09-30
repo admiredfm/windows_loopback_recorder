@@ -136,6 +136,8 @@ class _MyAppState extends State<MyApp> {
       _statusMessage = message;
     });
 
+    print("message: $message");
+
     // 3秒后清除状态消息
     Timer(Duration(seconds: 3), () {
       if (!mounted) return;
@@ -160,8 +162,8 @@ class _MyAppState extends State<MyApp> {
       // 开始录制
       bool success = await _recorder.startRecording(
         config: AudioConfig(
-          sampleRate: 44100,
-          channels: 2,
+          sampleRate: 16000,
+          channels: 1,
           bitsPerSample: 16,
         ),
       );
@@ -570,7 +572,7 @@ class _MyAppState extends State<MyApp> {
 
               // 设备列表
               Card(
-                child: Padding(
+                child: SingleChildScrollView(
                   padding: EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
