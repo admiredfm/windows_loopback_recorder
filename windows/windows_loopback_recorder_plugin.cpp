@@ -1,5 +1,8 @@
 #include "windows_loopback_recorder_plugin.h"
 
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+#define NOMINMAX
+
 // This must be included before many other Windows headers.
 #include <windows.h>
 

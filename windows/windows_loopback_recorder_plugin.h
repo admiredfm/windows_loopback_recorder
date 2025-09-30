@@ -11,12 +11,17 @@
 #include <atomic>
 #include <mutex>
 
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+#define NOMINMAX
+
 // Windows Audio API includes
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <audiopolicy.h>
 #include <functiondiscoverykeys_devpkey.h>
+#include <propvarutil.h>
+#include <combaseapi.h>
 
 namespace windows_loopback_recorder {
 
