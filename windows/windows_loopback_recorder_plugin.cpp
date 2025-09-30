@@ -18,8 +18,10 @@
 #include <memory>
 #include <sstream>
 #include <vector>
-#include <algorithm>
 #include <combaseapi.h>
+
+// Include algorithm after NOMINMAX to ensure std::max is available
+#include <algorithm>
 
 namespace windows_loopback_recorder {
 
@@ -476,7 +478,7 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
                                                    UINT32 systemFrames, UINT32 micFrames,
                                                    std::vector<BYTE>& outputBuffer) {
   // For simplicity, we'll use the larger frame count and mix the audio samples
-  UINT32 maxFrames = std::max(systemFrames, micFrames);
+  UINT32 maxFrames = (systemFrames > micFrames) ? systemFrames : micFrames;
   UINT32 bytesPerFrame = audioConfig_.channels * (audioConfig_.bitsPerSample / 8);
   UINT32 bufferSize = maxFrames * bytesPerFrame;
 
