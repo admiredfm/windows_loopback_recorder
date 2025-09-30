@@ -12,7 +12,9 @@
 #include <mutex>
 
 // Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 
 // Windows Audio API includes
 #include <windows.h>

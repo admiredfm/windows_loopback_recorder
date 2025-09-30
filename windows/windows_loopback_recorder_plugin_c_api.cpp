@@ -4,7 +4,7 @@
 
 #include "windows_loopback_recorder/windows_loopback_recorder_plugin.h"
 
-void WindowsLoopbackRecorderPluginCApiRegisterWithRegistrar(
+void WindowsLoopbackRecorderPluginRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar) {
   windows_loopback_recorder::WindowsLoopbackRecorderPlugin::RegisterWithRegistrar(
       flutter::PluginRegistrarManager::GetInstance()

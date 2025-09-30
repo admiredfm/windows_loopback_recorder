@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-FLUTTER_PLUGIN_EXPORT void WindowsLoopbackRecorderPluginCApiRegisterWithRegistrar(
+FLUTTER_PLUGIN_EXPORT void WindowsLoopbackRecorderPluginRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar);
 
 #if defined(__cplusplus)
