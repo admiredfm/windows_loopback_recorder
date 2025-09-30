@@ -1,14 +1,73 @@
-// You have generated a new plugin project without specifying the `--platforms`
-// flag. A plugin project with no platform support was generated. To add a
-// platform, run `flutter create -t plugin --platforms <platforms> .` under the
-// same directory. You can also find a detailed instruction on how to add
-// platforms in the `pubspec.yaml` at
-// https://flutter.dev/to/pubspec-plugin-platforms.
-
+import 'dart:typed_data';
 import 'windows_loopback_recorder_platform_interface.dart';
 
+/// Export the API classes for external use
+export 'windows_loopback_recorder_platform_interface.dart' show RecordingState, AudioConfig;
+
+/// Windows Loopback Recorder Plugin
+///
+/// This plugin allows recording mixed audio from Windows system output (speakers)
+/// and microphone input simultaneously using WASAPI.
 class WindowsLoopbackRecorder {
+  static WindowsLoopbackRecorderPlatform get _platform => WindowsLoopbackRecorderPlatform.instance;
+
+  /// Get the platform version
   Future<String?> getPlatformVersion() {
-    return WindowsLoopbackRecorderPlatform.instance.getPlatformVersion();
+    return _platform.getPlatformVersion();
   }
+
+  /// Start recording system audio and microphone
+  ///
+  /// [config] - Audio configuration parameters (sample rate, channels, etc.)
+  /// Returns true if recording started successfully
+  Future<bool> startRecording({AudioConfig? config}) {
+    return _platform.startRecording(config: config);
+  }
+
+  /// Pause the current recording
+  ///
+  /// Returns true if paused successfully
+  Future<bool> pauseRecording() {
+    return _platform.pauseRecording();
+  }
+
+  /// Resume recording from paused state
+  ///
+  /// Returns true if resumed successfully
+  Future<bool> resumeRecording() {
+    return _platform.resumeRecording();
+  }
+
+  /// Stop recording completely
+  ///
+  /// Returns true if stopped successfully
+  Future<bool> stopRecording() {
+    return _platform.stopRecording();
+  }
+
+  /// Get current recording state
+  Future<RecordingState> getRecordingState() {
+    return _platform.getRecordingState();
+  }
+
+  /// Check if microphone permission is granted
+  Future<bool> hasMicrophonePermission() {
+    return _platform.hasMicrophonePermission();
+  }
+
+  /// Request microphone permission from user
+  Future<bool> requestMicrophonePermission() {
+    return _platform.requestMicrophonePermission();
+  }
+
+  /// Get list of available audio devices
+  Future<List<String>> getAvailableDevices() {
+    return _platform.getAvailableDevices();
+  }
+
+  /// Get the audio data stream
+  ///
+  /// Returns a Stream of Uint8List containing mixed audio data
+  /// from system output and microphone input
+  Stream<Uint8List> get audioStream => _platform.audioStream;
 }

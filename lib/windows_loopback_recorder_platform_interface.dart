@@ -1,6 +1,35 @@
+import 'dart:typed_data';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'windows_loopback_recorder_method_channel.dart';
+
+/// Recording states
+enum RecordingState {
+  idle,
+  recording,
+  paused,
+}
+
+/// Audio configuration parameters
+class AudioConfig {
+  final int sampleRate;
+  final int channels;
+  final int bitsPerSample;
+
+  const AudioConfig({
+    this.sampleRate = 44100,
+    this.channels = 2,
+    this.bitsPerSample = 16,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'sampleRate': sampleRate,
+      'channels': channels,
+      'bitsPerSample': bitsPerSample,
+    };
+  }
+}
 
 abstract class WindowsLoopbackRecorderPlatform extends PlatformInterface {
   /// Constructs a WindowsLoopbackRecorderPlatform.
@@ -25,5 +54,50 @@ abstract class WindowsLoopbackRecorderPlatform extends PlatformInterface {
 
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+
+  /// Start recording system audio and microphone
+  Future<bool> startRecording({AudioConfig? config}) {
+    throw UnimplementedError('startRecording() has not been implemented.');
+  }
+
+  /// Pause the current recording
+  Future<bool> pauseRecording() {
+    throw UnimplementedError('pauseRecording() has not been implemented.');
+  }
+
+  /// Resume recording from paused state
+  Future<bool> resumeRecording() {
+    throw UnimplementedError('resumeRecording() has not been implemented.');
+  }
+
+  /// Stop recording and finalize
+  Future<bool> stopRecording() {
+    throw UnimplementedError('stopRecording() has not been implemented.');
+  }
+
+  /// Get current recording state
+  Future<RecordingState> getRecordingState() {
+    throw UnimplementedError('getRecordingState() has not been implemented.');
+  }
+
+  /// Check if microphone permission is granted
+  Future<bool> hasMicrophonePermission() {
+    throw UnimplementedError('hasMicrophonePermission() has not been implemented.');
+  }
+
+  /// Request microphone permission
+  Future<bool> requestMicrophonePermission() {
+    throw UnimplementedError('requestMicrophonePermission() has not been implemented.');
+  }
+
+  /// Get available audio devices
+  Future<List<String>> getAvailableDevices() {
+    throw UnimplementedError('getAvailableDevices() has not been implemented.');
+  }
+
+  /// Set up audio stream listener
+  Stream<Uint8List> get audioStream {
+    throw UnimplementedError('audioStream has not been implemented.');
   }
 }
