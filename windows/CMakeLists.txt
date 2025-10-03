@@ -48,30 +48,22 @@ if(MSVC)
   )
 endif()
 
-# Fetch libsamplerate for high-quality audio resampling
-include(FetchContent)
-
-# Configure libsamplerate build options before fetching
-set(BUILD_TESTING OFF CACHE BOOL "Disable libsamplerate tests" FORCE)
-set(LIBSAMPLERATE_EXAMPLES OFF CACHE BOOL "Disable libsamplerate examples" FORCE)
-set(LIBSAMPLERATE_INSTALL OFF CACHE BOOL "Disable libsamplerate install" FORCE)
-
-FetchContent_Declare(
-  libsamplerate
-  GIT_REPOSITORY https://github.com/libsndfile/libsamplerate.git
-  GIT_TAG        master  # Use master branch
+# Build a simple embedded libsamplerate implementation
+add_library(embedded_samplerate STATIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/embedded_samplerate.cpp"
 )
 
-FetchContent_MakeAvailable(libsamplerate)
+target_include_directories(embedded_samplerate PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
 
 # Source include directories and library dependencies. Add any plugin-specific
 # dependencies here.
 target_include_directories(${PLUGIN_NAME} PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}/include"
-  "${libsamplerate_SOURCE_DIR}/src")
+  "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin samplerate)
+target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin embedded_samplerate)
 
 # Link Windows Audio APIs
 target_link_libraries(${PLUGIN_NAME} PRIVATE
