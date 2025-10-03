@@ -617,8 +617,10 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
       // No data available, use optimal sleep time
       Sleep(optimalSleepMs);
     } else {
-      // Data available, use shorter interval to process promptly
-      Sleep(optimalSleepMs / 2);
+      // Data available, but still need reasonable sleep to avoid oversampling
+      // Use minimum of optimalSleepMs or 5ms to prevent audio speed issues
+      DWORD dataAvailableSleep = optimalSleepMs < 5 ? optimalSleepMs : 5;
+      Sleep(dataAvailableSleep);
     }
   }
 }
