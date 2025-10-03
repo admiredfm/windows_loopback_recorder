@@ -244,16 +244,11 @@ class _MyAppState extends State<MyApp> {
           try {
             _actualAudioFormat = await _recorder.getAudioFormat();
             if (mounted) {
-              print('=== 音频格式调试信息 ===');
-              print('用户配置: 44100Hz, 2ch, 16bit');
-              print('实际格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
-              print('重采样状态: ${44100 != _actualAudioFormat!.sampleRate || 2 != _actualAudioFormat!.channels ? "需要" : "不需要"}');
-
-              _setStatusMessage('录制中 - 实际格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
+              _setStatusMessage('录制中 - 格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
             }
           } catch (e) {
             // 如果获取格式失败，使用默认配置
-            _actualAudioFormat = AudioConfig(sampleRate: 44100, channels: 2, bitsPerSample: 16);
+            _actualAudioFormat = AudioConfig(sampleRate: 48000, channels: 2, bitsPerSample: 16);
             if (mounted) {
               _setStatusMessage('获取音频格式失败，使用默认格式: $e');
             }
@@ -358,10 +353,8 @@ class _MyAppState extends State<MyApp> {
     final int byteRate = sampleRate * channels * (bitsPerSample ~/ 8);
     final int blockAlign = channels * (bitsPerSample ~/ 8);
 
-    print('=== WAV文件保存调试信息 ===');
-    print('目标格式: ${sampleRate}Hz, ${channels}ch, ${bitsPerSample}bit');
+    print('创建WAV文件 - 采样率: ${sampleRate}Hz, 声道: $channels, 位深度: ${bitsPerSample}bit');
     print('音频数据大小: $totalDataSize bytes, 音频块数: ${_audioChunks.length}');
-    print('预期播放时长: ${(totalDataSize / (sampleRate * channels * (bitsPerSample / 8))).toStringAsFixed(2)} 秒');
 
     // 检查音频数据完整性
     int nonZeroChunks = 0;
