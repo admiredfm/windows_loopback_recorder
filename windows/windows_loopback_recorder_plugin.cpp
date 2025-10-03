@@ -648,24 +648,16 @@ bool WindowsLoopbackRecorderPlugin::InitializeResampler() {
                       (deviceConfig_.channels != audioConfig_.channels);
 
   if (resamplingEnabled_) {
-    // Create resampler for the target channel count
-    int error;
-    srcState_ = src_new(SRC_SINC_MEDIUM_QUALITY, audioConfig_.channels, &error);
-    if (error != 0) {
-      srcState_ = nullptr;
-      return false;
-    }
+    // Initialize simple resampler state
+    resamplePosition_ = 0.0;
   }
 
   return true;
 }
 
 void WindowsLoopbackRecorderPlugin::CleanupResampler() {
-  if (srcState_) {
-    src_delete(srcState_);
-    srcState_ = nullptr;
-  }
   resamplingEnabled_ = false;
+  resamplePosition_ = 0.0;
 }
 
 bool WindowsLoopbackRecorderPlugin::ProcessAudioFormat(std::vector<BYTE>& audioBuffer) {
@@ -691,40 +683,42 @@ bool WindowsLoopbackRecorderPlugin::ProcessAudioFormat(std::vector<BYTE>& audioB
 }
 
 std::vector<BYTE> WindowsLoopbackRecorderPlugin::ResampleAudio(const std::vector<BYTE>& inputBuffer) {
-  if (!srcState_ || deviceConfig_.sampleRate == audioConfig_.sampleRate) {
+  if (deviceConfig_.sampleRate == audioConfig_.sampleRate) {
     return inputBuffer;
   }
 
-  // Convert to float for libsamplerate
-  std::vector<float> floatInput = ConvertToFloat(inputBuffer);
+  // Simple linear interpolation resampling
+  double ratio = static_cast<double>(deviceConfig_.sampleRate) / audioConfig_.sampleRate;
+  size_t inputSamples = inputBuffer.size() / 2; // 16-bit samples
+  size_t inputFrames = inputSamples / audioConfig_.channels;
+  size_t outputFrames = static_cast<size_t>(inputFrames / ratio);
 
-  // Calculate output size
-  double ratio = static_cast<double>(audioConfig_.sampleRate) / deviceConfig_.sampleRate;
-  size_t inputFrames = floatInput.size() / audioConfig_.channels;
-  size_t maxOutputFrames = static_cast<size_t>(inputFrames * ratio) + 1024;
+  std::vector<BYTE> outputBuffer(outputFrames * audioConfig_.channels * 2);
 
-  std::vector<float> floatOutput(maxOutputFrames * audioConfig_.channels);
+  const int16_t* inputData = reinterpret_cast<const int16_t*>(inputBuffer.data());
+  int16_t* outputData = reinterpret_cast<int16_t*>(outputBuffer.data());
 
-  // Setup SRC data structure
-  SRC_DATA srcData;
-  srcData.data_in = floatInput.data();
-  srcData.input_frames = inputFrames;
-  srcData.data_out = floatOutput.data();
-  srcData.output_frames = maxOutputFrames;
-  srcData.src_ratio = ratio;
-  srcData.end_of_input = 0;
+  for (size_t outFrame = 0; outFrame < outputFrames; outFrame++) {
+    double srcFrame = outFrame * ratio;
+    size_t srcIndex = static_cast<size_t>(srcFrame);
+    double fraction = srcFrame - srcIndex;
 
-  // Process resampling
-  int error = src_process(srcState_, &srcData);
-  if (error != 0) {
-    return inputBuffer; // Return original on error
+    for (UINT32 ch = 0; ch < audioConfig_.channels; ch++) {
+      if (srcIndex + 1 < inputFrames) {
+        // Linear interpolation
+        double sample1 = inputData[srcIndex * audioConfig_.channels + ch];
+        double sample2 = inputData[(srcIndex + 1) * audioConfig_.channels + ch];
+        outputData[outFrame * audioConfig_.channels + ch] =
+          static_cast<int16_t>(sample1 * (1.0 - fraction) + sample2 * fraction);
+      } else {
+        // Use last available sample
+        outputData[outFrame * audioConfig_.channels + ch] =
+          inputData[(inputFrames - 1) * audioConfig_.channels + ch];
+      }
+    }
   }
 
-  // Resize to actual output
-  floatOutput.resize(srcData.output_frames_gen * audioConfig_.channels);
-
-  // Convert back to BYTE
-  return ConvertFromFloat(floatOutput);
+  return outputBuffer;
 }
 
 std::vector<BYTE> WindowsLoopbackRecorderPlugin::ConvertChannels(const std::vector<BYTE>& inputBuffer) {
@@ -775,6 +769,9 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ConvertChannels(const std::vect
   memcpy(result.data(), outputData.data(), result.size());
   return result;
 }
+
+// Note: ConvertToFloat and ConvertFromFloat methods are not needed for built-in resampling
+// They were designed for libsamplerate compatibility
 
 std::vector<float> WindowsLoopbackRecorderPlugin::ConvertToFloat(const std::vector<BYTE>& byteBuffer) {
   size_t sampleCount = byteBuffer.size() / 2; // Assuming 16-bit samples
