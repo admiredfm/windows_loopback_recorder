@@ -479,15 +479,16 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     double bufferDurationMs = (double)bufferFrameCount * 1000.0 / systemWaveFormat_->nSamplesPerSec;
     printf("System audio buffer: %u frames, %.2f ms duration\n", bufferFrameCount, bufferDurationMs);
 
-    // Calculate optimal sleep time: check at 1/4 of buffer duration, but minimum 2ms, maximum 10ms
-    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 4.0);
-    if (optimalSleepMs < 2) optimalSleepMs = 2;
-    if (optimalSleepMs > 10) optimalSleepMs = 10;
+    // Calculate optimal sleep time: check at 1/3 of buffer duration for better balance
+    // Use slightly longer intervals to prevent oversampling
+    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 3.0);
+    if (optimalSleepMs < 5) optimalSleepMs = 5;   // Increased minimum from 2ms to 5ms
+    if (optimalSleepMs > 15) optimalSleepMs = 15; // Increased maximum from 10ms to 15ms
 
     printf("Calculated optimal sleep interval: %lu ms\n", optimalSleepMs);
   } else {
-    // Fallback if buffer size query fails
-    optimalSleepMs = 5;
+    // Fallback if buffer size query fails - use more conservative value
+    optimalSleepMs = 8;
     printf("Using fallback sleep interval: %lu ms\n", optimalSleepMs);
   }
 
@@ -612,15 +613,14 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
       }
     }
 
-    // Use adaptive sleep based on calculated optimal interval
+    // Use adaptive sleep with more conservative approach
     if (systemPacketLength == 0 && micPacketLength == 0) {
-      // No data available, use optimal sleep time
+      // No data available, use longer sleep to avoid overpolling
       Sleep(optimalSleepMs);
     } else {
-      // Data available, but still need reasonable sleep to avoid oversampling
-      // Use minimum of optimalSleepMs or 5ms to prevent audio speed issues
-      DWORD dataAvailableSleep = optimalSleepMs < 5 ? optimalSleepMs : 5;
-      Sleep(dataAvailableSleep);
+      // Data available, use the same optimal sleep to maintain consistent timing
+      // Don't reduce the sleep time when data is available to prevent speed issues
+      Sleep(optimalSleepMs);
     }
   }
 }
