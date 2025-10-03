@@ -26,6 +26,9 @@
 #include <propvarutil.h>
 #include <combaseapi.h>
 
+// libsamplerate for audio resampling
+#include <samplerate.h>
+
 namespace windows_loopback_recorder {
 
 enum class RecordingState {
@@ -76,6 +79,15 @@ class WindowsLoopbackRecorderPlugin : public flutter::Plugin {
                        UINT32 systemFrames, UINT32 micFrames,
                        std::vector<BYTE>& outputBuffer);
 
+  // Audio processing methods
+  bool InitializeResampler();
+  void CleanupResampler();
+  bool ProcessAudioFormat(std::vector<BYTE>& audioBuffer);
+  std::vector<BYTE> ResampleAudio(const std::vector<BYTE>& inputBuffer);
+  std::vector<BYTE> ConvertChannels(const std::vector<BYTE>& inputBuffer);
+  std::vector<float> ConvertToFloat(const std::vector<BYTE>& byteBuffer);
+  std::vector<BYTE> ConvertFromFloat(const std::vector<float>& floatBuffer);
+
   // Audio capture thread management
   std::thread captureThread_;
   std::atomic<bool> shouldStop_{false};
@@ -94,6 +106,11 @@ class WindowsLoopbackRecorderPlugin : public flutter::Plugin {
   WAVEFORMATEX* systemWaveFormat_ = nullptr;
   WAVEFORMATEX* micWaveFormat_ = nullptr;
   AudioConfig audioConfig_;
+  AudioConfig deviceConfig_; // Store actual device format
+
+  // Resampling configuration
+  SRC_STATE* srcState_ = nullptr;
+  bool resamplingEnabled_ = false;
 
   // Event stream for sending audio data to Dart
   std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> eventSink_ = nullptr;
