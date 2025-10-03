@@ -693,9 +693,9 @@ bool WindowsLoopbackRecorderPlugin::InitializeResampler() {
                       (deviceConfig_.channels != audioConfig_.channels);
 
   if (resamplingEnabled_) {
-    // Create libsamplerate resampler for the target channel count
+    // Create libsamplerate resampler for the DEVICE channel count (input format)
     int error;
-    srcState_ = src_new(SRC_SINC_MEDIUM_QUALITY, audioConfig_.channels, &error);
+    srcState_ = src_new(SRC_SINC_MEDIUM_QUALITY, deviceConfig_.channels, &error);
     if (error != 0) {
       srcState_ = nullptr;
       return false;
@@ -719,14 +719,14 @@ bool WindowsLoopbackRecorderPlugin::ProcessAudioFormat(std::vector<BYTE>& audioB
   }
 
   try {
-    // Step 1: Convert channels if necessary
-    if (deviceConfig_.channels != audioConfig_.channels) {
-      audioBuffer = ConvertChannels(audioBuffer);
-    }
-
-    // Step 2: Resample if necessary
+    // Step 1: Resample first if necessary (before channel conversion)
     if (deviceConfig_.sampleRate != audioConfig_.sampleRate) {
       audioBuffer = ResampleAudio(audioBuffer);
+    }
+
+    // Step 2: Convert channels if necessary (after resampling)
+    if (deviceConfig_.channels != audioConfig_.channels) {
+      audioBuffer = ConvertChannels(audioBuffer);
     }
 
     return true;
@@ -743,12 +743,12 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ResampleAudio(const std::vector
   // Convert to float for libsamplerate
   std::vector<float> floatInput = ConvertToFloat(inputBuffer);
 
-  // Calculate output size
+  // Calculate output size using DEVICE channels (input format), not target channels
   double ratio = static_cast<double>(audioConfig_.sampleRate) / deviceConfig_.sampleRate;
-  size_t inputFrames = floatInput.size() / audioConfig_.channels;
+  size_t inputFrames = floatInput.size() / deviceConfig_.channels;  // Use device channels for input
   size_t maxOutputFrames = static_cast<size_t>(inputFrames * ratio) + 1024;
 
-  std::vector<float> floatOutput(maxOutputFrames * audioConfig_.channels);
+  std::vector<float> floatOutput(maxOutputFrames * deviceConfig_.channels);  // Keep same channel count during resampling
 
   // Setup SRC data structure
   SRC_DATA srcData;
@@ -765,8 +765,8 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ResampleAudio(const std::vector
     return inputBuffer; // Return original on error
   }
 
-  // Resize to actual output
-  floatOutput.resize(srcData.output_frames_gen * audioConfig_.channels);
+  // Resize to actual output (keep device channel count)
+  floatOutput.resize(srcData.output_frames_gen * deviceConfig_.channels);
 
   // Convert back to BYTE
   return ConvertFromFloat(floatOutput);
