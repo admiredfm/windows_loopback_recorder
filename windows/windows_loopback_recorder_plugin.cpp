@@ -415,10 +415,20 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     return hr;
   }
 
-  // Initialize audio client in loopback mode
+  // Print system audio format for debugging
+  printf("System audio format: %dHz, %dch, %dbit, BlockAlign: %d\n",
+         systemWaveFormat_->nSamplesPerSec,
+         systemWaveFormat_->nChannels,
+         systemWaveFormat_->wBitsPerSample,
+         systemWaveFormat_->nBlockAlign);
+
+  // Calculate buffer duration for better audio quality (100ms buffer)
+  REFERENCE_TIME bufferDuration = 1000000; // 100ms in 100-nanosecond units
+
+  // Initialize audio client in loopback mode with proper buffer size
   hr = systemAudioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED,
                                      AUDCLNT_STREAMFLAGS_LOOPBACK,
-                                     0, 0, systemWaveFormat_, nullptr);
+                                     bufferDuration, 0, systemWaveFormat_, nullptr);
   if (FAILED(hr)) {
     return hr;
   }
@@ -534,9 +544,10 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
       if (micData && micCaptureClient_) {
         micCaptureClient_->ReleaseBuffer(micFrames);
       }
+    } else {
+      // Only sleep when no audio data is available to prevent missed samples
+      Sleep(1); // Minimal delay only when idle
     }
-
-    Sleep(10); // Small delay to prevent high CPU usage
   }
 }
 
