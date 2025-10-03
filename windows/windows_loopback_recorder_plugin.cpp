@@ -479,26 +479,16 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     double bufferDurationMs = (double)bufferFrameCount * 1000.0 / systemWaveFormat_->nSamplesPerSec;
     printf("System audio buffer: %u frames, %.2f ms duration\n", bufferFrameCount, bufferDurationMs);
 
-    // Calculate optimal sleep time with more conservative approach for stability
-    // Use 1/6 of buffer duration instead of 1/4 for more frequent polling and better timing accuracy
-    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 6.0);
+    // Calculate optimal sleep time: check at 1/4 of buffer duration, but minimum 2ms, maximum 10ms
+    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 4.0);
+    if (optimalSleepMs < 2) optimalSleepMs = 2;
+    if (optimalSleepMs > 10) optimalSleepMs = 10;
 
-    // Tighter bounds: minimum 1ms, maximum 8ms for more precise timing
-    if (optimalSleepMs < 1) optimalSleepMs = 1;
-    if (optimalSleepMs > 8) optimalSleepMs = 8;
-
-    // For sample rates typically affected by timing issues, use more conservative values
-    if (systemWaveFormat_->nSamplesPerSec <= 16000) {
-      optimalSleepMs = (optimalSleepMs > 2) ? 2 : optimalSleepMs;
-      printf("Low sample rate detected, using conservative timing\n");
-    }
-
-    printf("Calculated optimal sleep interval: %lu ms (sample rate: %lu Hz)\n",
-           optimalSleepMs, systemWaveFormat_->nSamplesPerSec);
+    printf("Calculated optimal sleep interval: %lu ms\n", optimalSleepMs);
   } else {
-    // More conservative fallback for unknown buffer sizes
-    optimalSleepMs = 2;
-    printf("Using conservative fallback sleep interval: %lu ms\n", optimalSleepMs);
+    // Fallback if buffer size query fails
+    optimalSleepMs = 5;
+    printf("Using fallback sleep interval: %lu ms\n", optimalSleepMs);
   }
 
   // Initialize audio client in loopback mode
@@ -622,16 +612,13 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
       }
     }
 
-    // Use adaptive sleep based on calculated optimal interval with improved timing logic
+    // Use adaptive sleep based on calculated optimal interval
     if (systemPacketLength == 0 && micPacketLength == 0) {
-      // No data available, use optimal sleep time but ensure minimum processing frequency
-      DWORD sleepTime = optimalSleepMs;
-      if (sleepTime > 5) sleepTime = 5; // Cap sleep time to maintain responsiveness
-      Sleep(sleepTime);
+      // No data available, use optimal sleep time
+      Sleep(optimalSleepMs);
     } else {
-      // Data available, use minimal sleep to maintain timing accuracy
-      // Use 1ms for immediate processing, ensuring we don't miss timing windows
-      Sleep(1);
+      // Data available, use shorter interval to process promptly
+      Sleep(optimalSleepMs / 2);
     }
   }
 }
