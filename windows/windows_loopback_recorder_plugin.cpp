@@ -318,18 +318,22 @@ bool WindowsLoopbackRecorderPlugin::StopRecording() {
     captureThread_.join();
   }
 
-  // Stop audio clients
+  // Stop audio clients first and ensure they are fully stopped
   if (systemAudioClient_) {
     systemAudioClient_->Stop();
+    // Allow time for the audio service to fully stop
+    Sleep(50);
   }
   if (micAudioClient_) {
     micAudioClient_->Stop();
+    Sleep(50);
   }
 
-  // Clean up resampler
+  // Clean up resampler before releasing WASAPI resources
   CleanupResampler();
 
   // IMPORTANT: Release WASAPI resources to ensure clean restart
+  // Release in reverse order of creation for proper cleanup
   if (systemCaptureClient_) {
     systemCaptureClient_->Release();
     systemCaptureClient_ = nullptr;
@@ -367,7 +371,10 @@ bool WindowsLoopbackRecorderPlugin::StopRecording() {
   // Reset adaptive timing to force recalculation
   optimalSleepMs = 5; // Reset to default
 
-  printf("WASAPI resources cleaned up for restart\n");
+  // Force Windows audio service to stabilize before next use
+  Sleep(100);
+
+  printf("WASAPI resources cleaned up for restart with stabilization delay\n");
 
   currentState_ = RecordingState::IDLE;
   return true;
@@ -472,16 +479,26 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     double bufferDurationMs = (double)bufferFrameCount * 1000.0 / systemWaveFormat_->nSamplesPerSec;
     printf("System audio buffer: %u frames, %.2f ms duration\n", bufferFrameCount, bufferDurationMs);
 
-    // Calculate optimal sleep time: check at 1/4 of buffer duration, but minimum 2ms, maximum 10ms
-    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 4.0);
-    if (optimalSleepMs < 2) optimalSleepMs = 2;
-    if (optimalSleepMs > 10) optimalSleepMs = 10;
+    // Calculate optimal sleep time with more conservative approach for stability
+    // Use 1/6 of buffer duration instead of 1/4 for more frequent polling and better timing accuracy
+    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 6.0);
 
-    printf("Calculated optimal sleep interval: %lu ms\n", optimalSleepMs);
+    // Tighter bounds: minimum 1ms, maximum 8ms for more precise timing
+    if (optimalSleepMs < 1) optimalSleepMs = 1;
+    if (optimalSleepMs > 8) optimalSleepMs = 8;
+
+    // For sample rates typically affected by timing issues, use more conservative values
+    if (systemWaveFormat_->nSamplesPerSec <= 16000) {
+      optimalSleepMs = (optimalSleepMs > 2) ? 2 : optimalSleepMs;
+      printf("Low sample rate detected, using conservative timing\n");
+    }
+
+    printf("Calculated optimal sleep interval: %lu ms (sample rate: %lu Hz)\n",
+           optimalSleepMs, systemWaveFormat_->nSamplesPerSec);
   } else {
-    // Fallback if buffer size query fails
-    optimalSleepMs = 5;
-    printf("Using fallback sleep interval: %lu ms\n", optimalSleepMs);
+    // More conservative fallback for unknown buffer sizes
+    optimalSleepMs = 2;
+    printf("Using conservative fallback sleep interval: %lu ms\n", optimalSleepMs);
   }
 
   // Initialize audio client in loopback mode
@@ -605,13 +622,16 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
       }
     }
 
-    // Use adaptive sleep based on calculated optimal interval
+    // Use adaptive sleep based on calculated optimal interval with improved timing logic
     if (systemPacketLength == 0 && micPacketLength == 0) {
-      // No data available, use optimal sleep time
-      Sleep(optimalSleepMs);
+      // No data available, use optimal sleep time but ensure minimum processing frequency
+      DWORD sleepTime = optimalSleepMs;
+      if (sleepTime > 5) sleepTime = 5; // Cap sleep time to maintain responsiveness
+      Sleep(sleepTime);
     } else {
-      // Data available, use shorter interval to process promptly
-      Sleep(optimalSleepMs / 2);
+      // Data available, use minimal sleep to maintain timing accuracy
+      // Use 1ms for immediate processing, ensuring we don't miss timing windows
+      Sleep(1);
     }
   }
 }
@@ -784,22 +804,59 @@ bool WindowsLoopbackRecorderPlugin::InitializeResampler() {
   }
 
   // Store device configuration
-  deviceConfig_.sampleRate = systemWaveFormat_->nSamplesPerSec;
-  deviceConfig_.channels = systemWaveFormat_->nChannels;
-  deviceConfig_.bitsPerSample = systemWaveFormat_->wBitsPerSample;
+  AudioConfig newDeviceConfig;
+  newDeviceConfig.sampleRate = systemWaveFormat_->nSamplesPerSec;
+  newDeviceConfig.channels = systemWaveFormat_->nChannels;
+  newDeviceConfig.bitsPerSample = systemWaveFormat_->wBitsPerSample;
+
+  // Check for format stability - compare with previous configuration
+  static AudioConfig lastDeviceConfig;
+  bool formatChanged = (lastDeviceConfig.sampleRate != newDeviceConfig.sampleRate) ||
+                       (lastDeviceConfig.channels != newDeviceConfig.channels) ||
+                       (lastDeviceConfig.bitsPerSample != newDeviceConfig.bitsPerSample);
+
+  if (formatChanged) {
+    printf("Audio format changed: %dHz/%dch/%dbit -> %dHz/%dch/%dbit\n",
+           lastDeviceConfig.sampleRate, lastDeviceConfig.channels, lastDeviceConfig.bitsPerSample,
+           newDeviceConfig.sampleRate, newDeviceConfig.channels, newDeviceConfig.bitsPerSample);
+
+    // Add stabilization delay when format changes
+    Sleep(200);
+  }
+
+  deviceConfig_ = newDeviceConfig;
+  lastDeviceConfig = newDeviceConfig;
 
   // Check if resampling is necessary
   resamplingEnabled_ = (deviceConfig_.sampleRate != audioConfig_.sampleRate) ||
                       (deviceConfig_.channels != audioConfig_.channels);
 
   if (resamplingEnabled_) {
+    printf("Initializing resampler: %dHz/%dch -> %dHz/%dch\n",
+           deviceConfig_.sampleRate, deviceConfig_.channels,
+           audioConfig_.sampleRate, audioConfig_.channels);
+
     // Create libsamplerate resampler for the target channel count
     int error;
     srcState_ = src_new(SRC_SINC_MEDIUM_QUALITY, audioConfig_.channels, &error);
     if (error != 0) {
+      printf("Resampler initialization failed: %s\n", src_strerror(error));
       srcState_ = nullptr;
       return false;
     }
+
+    // Warm up the resampler with a small amount of silence to stabilize
+    std::vector<float> warmupData(audioConfig_.channels * 64, 0.0f);
+    SRC_DATA warmupSrcData;
+    warmupSrcData.data_in = warmupData.data();
+    warmupSrcData.input_frames = 64;
+    warmupSrcData.data_out = warmupData.data();
+    warmupSrcData.output_frames = 64;
+    warmupSrcData.src_ratio = 1.0;
+    warmupSrcData.end_of_input = 0;
+    src_process(srcState_, &warmupSrcData);
+
+    printf("Resampler initialized and warmed up successfully\n");
   }
 
   return true;
@@ -807,10 +864,15 @@ bool WindowsLoopbackRecorderPlugin::InitializeResampler() {
 
 void WindowsLoopbackRecorderPlugin::CleanupResampler() {
   if (srcState_) {
+    // Force reset the resampler state to clear any internal buffers
+    src_reset(srcState_);
     src_delete(srcState_);
     srcState_ = nullptr;
   }
   resamplingEnabled_ = false;
+
+  // Clear any cached resampling parameters to force recalculation
+  deviceConfig_ = AudioConfig();
 }
 
 bool WindowsLoopbackRecorderPlugin::ProcessAudioFormat(std::vector<BYTE>& audioBuffer) {
