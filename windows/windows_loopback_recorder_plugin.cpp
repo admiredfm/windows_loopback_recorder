@@ -570,7 +570,7 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
           if (byteIndex + 1 < bufferSize) {
             int16_t sample = *reinterpret_cast<const int16_t*>(&systemBuffer[byteIndex]);
             int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[byteIndex]);
-            *outputSample = static_cast<int16_t>(sample / 2); // Start with system audio at half volume
+            *outputSample = sample; // Preserve full system audio quality
           }
         }
       }
@@ -591,7 +591,12 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
               outputByteIndex + 1 < bufferSize) {
             int16_t micSample = *reinterpret_cast<const int16_t*>(&micBuffer[micByteIndex]);
             int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[outputByteIndex]);
-            *outputSample = static_cast<int16_t>(*outputSample + micSample / 2); // Add mic at half volume
+
+            // Safe mixing: prevent overflow by using 32-bit arithmetic and clamping
+            int32_t mixed = static_cast<int32_t>(*outputSample) + static_cast<int32_t>(micSample);
+            if (mixed > 32767) mixed = 32767;
+            if (mixed < -32768) mixed = -32768;
+            *outputSample = static_cast<int16_t>(mixed);
           }
         }
       }
@@ -619,7 +624,8 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
               outputByteIndex + 1 < outputBuffer.size()) {
             float floatSample = *reinterpret_cast<const float*>(&systemBuffer[floatByteIndex]);
             // Convert float (-1.0 to 1.0) to 16-bit PCM (-32768 to 32767)
-            int16_t pcmSample = static_cast<int16_t>(floatSample * 32767.0f / 2.0f); // Half volume
+            // Preserve full dynamic range for better audio quality
+            int16_t pcmSample = static_cast<int16_t>(floatSample * 32767.0f);
             *reinterpret_cast<int16_t*>(&outputBuffer[outputByteIndex]) = pcmSample;
           }
         }
@@ -659,7 +665,12 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
             }
 
             int16_t* outputSample = reinterpret_cast<int16_t*>(&outputBuffer[outputByteIndex]);
-            *outputSample = static_cast<int16_t>(*outputSample + micSample / 2);
+
+            // Safe mixing: prevent overflow by using 32-bit arithmetic and clamping
+            int32_t mixed = static_cast<int32_t>(*outputSample) + static_cast<int32_t>(micSample);
+            if (mixed > 32767) mixed = 32767;
+            if (mixed < -32768) mixed = -32768;
+            *outputSample = static_cast<int16_t>(mixed);
           }
         }
       }
