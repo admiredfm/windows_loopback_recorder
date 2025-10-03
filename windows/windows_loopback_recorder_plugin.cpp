@@ -230,18 +230,15 @@ void WindowsLoopbackRecorderPlugin::HandleMethodCall(
 
   } else if (method_call.method_name() == "getAudioFormat") {
     flutter::EncodableMap format_info;
-    // Return the ACTUAL format being used (device format, not resampled)
-    // Because our current resampling implementation may have issues
-    if (systemWaveFormat_) {
-      format_info[flutter::EncodableValue("sampleRate")] = flutter::EncodableValue(static_cast<int32_t>(systemWaveFormat_->nSamplesPerSec));
-      format_info[flutter::EncodableValue("channels")] = flutter::EncodableValue(static_cast<int32_t>(systemWaveFormat_->nChannels));
-      format_info[flutter::EncodableValue("bitsPerSample")] = flutter::EncodableValue(static_cast<int32_t>(16)); // Always convert to 16-bit
-    } else {
-      // Fallback to user config if no device format available
-      format_info[flutter::EncodableValue("sampleRate")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.sampleRate));
-      format_info[flutter::EncodableValue("channels")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.channels));
-      format_info[flutter::EncodableValue("bitsPerSample")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.bitsPerSample));
-    }
+    // Return the user-configured format (after resampling/conversion)
+    // This should match what we actually output after processing
+    format_info[flutter::EncodableValue("sampleRate")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.sampleRate));
+    format_info[flutter::EncodableValue("channels")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.channels));
+    format_info[flutter::EncodableValue("bitsPerSample")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.bitsPerSample));
+
+    printf("getAudioFormat returning: %dHz, %dch, %dbit\n",
+           audioConfig_.sampleRate, audioConfig_.channels, audioConfig_.bitsPerSample);
+
     result->Success(flutter::EncodableValue(format_info));
 
   } else if (method_call.method_name() == "startVolumeMonitoring") {
@@ -696,21 +693,26 @@ bool WindowsLoopbackRecorderPlugin::InitializeResampler() {
   deviceConfig_.channels = systemWaveFormat_->nChannels;
   deviceConfig_.bitsPerSample = systemWaveFormat_->wBitsPerSample;
 
-  // Temporarily disable resampling to test if it's causing playback speed issues
-  resamplingEnabled_ = false;
+  // Check if resampling is necessary
+  resamplingEnabled_ = (deviceConfig_.sampleRate != audioConfig_.sampleRate) ||
+                      (deviceConfig_.channels != audioConfig_.channels);
 
-  // Original code (commented out for testing):
-  // resamplingEnabled_ = (deviceConfig_.sampleRate != audioConfig_.sampleRate) ||
-  //                     (deviceConfig_.channels != audioConfig_.channels);
+  // Debug output
+  printf("Audio format comparison:\n");
+  printf("Device: %dHz, %dch, %dbit\n", deviceConfig_.sampleRate, deviceConfig_.channels, deviceConfig_.bitsPerSample);
+  printf("Target: %dHz, %dch, %dbit\n", audioConfig_.sampleRate, audioConfig_.channels, audioConfig_.bitsPerSample);
+  printf("Resampling needed: %s\n", resamplingEnabled_ ? "YES" : "NO");
 
   if (resamplingEnabled_) {
-    // Create libsamplerate resampler for the target channel count
+    // Create libsamplerate resampler for the DEVICE channel count (input format)
     int error;
-    srcState_ = src_new(SRC_SINC_MEDIUM_QUALITY, audioConfig_.channels, &error);
+    srcState_ = src_new(SRC_SINC_MEDIUM_QUALITY, deviceConfig_.channels, &error);
     if (error != 0) {
+      printf("Failed to create resampler: %d\n", error);
       srcState_ = nullptr;
       return false;
     }
+    printf("Created resampler for %d channels\n", deviceConfig_.channels);
   }
 
   return true;
@@ -730,18 +732,25 @@ bool WindowsLoopbackRecorderPlugin::ProcessAudioFormat(std::vector<BYTE>& audioB
   }
 
   try {
-    // Step 1: Convert channels if necessary
-    if (deviceConfig_.channels != audioConfig_.channels) {
-      audioBuffer = ConvertChannels(audioBuffer);
-    }
-
-    // Step 2: Resample if necessary
+    // Step 1: Resample sample rate FIRST (keeping original channel count)
     if (deviceConfig_.sampleRate != audioConfig_.sampleRate) {
       audioBuffer = ResampleAudio(audioBuffer);
+
+      // After resampling, update the "current" format for next step
+      deviceConfig_.sampleRate = audioConfig_.sampleRate;
+    }
+
+    // Step 2: Convert channels AFTER resampling
+    if (deviceConfig_.channels != audioConfig_.channels) {
+      audioBuffer = ConvertChannels(audioBuffer);
+
+      // After channel conversion, update the "current" format
+      deviceConfig_.channels = audioConfig_.channels;
     }
 
     return true;
   } catch (...) {
+    printf("Error in ProcessAudioFormat\n");
     return false;
   }
 }
@@ -751,15 +760,18 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ResampleAudio(const std::vector
     return inputBuffer;
   }
 
+  printf("Resampling: %dHz -> %dHz, %d channels\n",
+         deviceConfig_.sampleRate, audioConfig_.sampleRate, deviceConfig_.channels);
+
   // Convert to float for libsamplerate
   std::vector<float> floatInput = ConvertToFloat(inputBuffer);
 
-  // Calculate output size
+  // Calculate output size - USE DEVICE CHANNELS (current format)
   double ratio = static_cast<double>(audioConfig_.sampleRate) / deviceConfig_.sampleRate;
-  size_t inputFrames = floatInput.size() / audioConfig_.channels;
+  size_t inputFrames = floatInput.size() / deviceConfig_.channels;  // Use device channels!
   size_t maxOutputFrames = static_cast<size_t>(inputFrames * ratio) + 1024;
 
-  std::vector<float> floatOutput(maxOutputFrames * audioConfig_.channels);
+  std::vector<float> floatOutput(maxOutputFrames * deviceConfig_.channels);  // Keep device channels!
 
   // Setup SRC data structure
   SRC_DATA srcData;
@@ -776,8 +788,11 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ResampleAudio(const std::vector
     return inputBuffer; // Return original on error
   }
 
-  // Resize to actual output
-  floatOutput.resize(srcData.output_frames_gen * audioConfig_.channels);
+  // Resize to actual output - keep device channels since we haven't converted channels yet
+  floatOutput.resize(srcData.output_frames_gen * deviceConfig_.channels);
+
+  printf("Resampling result: %zu input frames -> %ld output frames\n",
+         inputFrames, srcData.output_frames_gen);
 
   // Convert back to BYTE
   return ConvertFromFloat(floatOutput);
@@ -787,6 +802,8 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ConvertChannels(const std::vect
   if (deviceConfig_.channels == audioConfig_.channels) {
     return inputBuffer;
   }
+
+  printf("Converting channels: %dch -> %dch\n", deviceConfig_.channels, audioConfig_.channels);
 
   // Convert bytes to int16 for processing
   size_t inputSamples = inputBuffer.size() / 2; // Assuming 16-bit samples
@@ -825,6 +842,9 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ConvertChannels(const std::vect
       }
     }
   }
+
+  printf("Channel conversion result: %zu input frames -> %zu output samples\n",
+         inputFrames, outputData.size());
 
   // Convert back to BYTE
   std::vector<BYTE> result(outputData.size() * 2);

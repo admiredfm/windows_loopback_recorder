@@ -358,8 +358,10 @@ class _MyAppState extends State<MyApp> {
     final int byteRate = sampleRate * channels * (bitsPerSample ~/ 8);
     final int blockAlign = channels * (bitsPerSample ~/ 8);
 
-    print('创建WAV文件 - 采样率: ${sampleRate}Hz, 声道: $channels, 位深度: ${bitsPerSample}bit');
+    print('=== WAV文件保存调试信息 ===');
+    print('目标格式: ${sampleRate}Hz, ${channels}ch, ${bitsPerSample}bit');
     print('音频数据大小: $totalDataSize bytes, 音频块数: ${_audioChunks.length}');
+    print('预期播放时长: ${(totalDataSize / (sampleRate * channels * (bitsPerSample / 8))).toStringAsFixed(2)} 秒');
 
     // 检查音频数据完整性
     int nonZeroChunks = 0;
