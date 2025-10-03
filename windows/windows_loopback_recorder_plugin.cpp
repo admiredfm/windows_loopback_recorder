@@ -17,8 +17,42 @@
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <windows.h>
+#include <iostream>
+#include <io.h>
+#include <fcntl.h>
 
 namespace windows_loopback_recorder {
+
+// Debug output function that works in Windows
+void DebugOutput(const char* format, ...) {
+  char buffer[1024];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+
+  // Method 1: Output to Visual Studio debug console (visible in VS output window)
+  OutputDebugStringA(buffer);
+  OutputDebugStringA("\n");
+
+  // Method 2: Output to standard output (may work in some environments)
+  printf("%s\n", buffer);
+
+  // Method 3: Force flush to ensure output appears
+  fflush(stdout);
+
+  // Method 4: Write to Windows Event Log for critical information (optional)
+  // This can be viewed in Windows Event Viewer
+  if (strstr(buffer, "ERROR") || strstr(buffer, "FAILED")) {
+    HANDLE hEventLog = RegisterEventSourceA(NULL, "WindowsLoopbackRecorder");
+    if (hEventLog) {
+      const char* messages[] = { buffer };
+      ReportEventA(hEventLog, EVENTLOG_ERROR_TYPE, 0, 0, NULL, 1, 0, messages, NULL);
+      DeregisterEventSource(hEventLog);
+    }
+  }
+}
 
 // static
 void WindowsLoopbackRecorderPlugin::RegisterWithRegistrar(
@@ -264,11 +298,11 @@ void WindowsLoopbackRecorderPlugin::HandleMethodCall(
 
 bool WindowsLoopbackRecorderPlugin::StartRecording(const AudioConfig& config) {
   if (currentState_ != RecordingState::IDLE) {
-    printf("StartRecording failed: not in IDLE state (current: %d)\n", static_cast<int>(currentState_.load()));
+    DebugOutput("StartRecording failed: not in IDLE state (current: %d)", static_cast<int>(currentState_.load()));
     return false;
   }
 
-  printf("=== Starting new recording session ===\n");
+  DebugOutput("=== Starting new recording session ===");
   audioConfig_ = config;
 
   // Initialize audio capture
@@ -374,7 +408,7 @@ bool WindowsLoopbackRecorderPlugin::StopRecording() {
   // Force Windows audio service to stabilize before next use
   Sleep(100);
 
-  printf("WASAPI resources cleaned up for restart with stabilization delay\n");
+  DebugOutput("WASAPI resources cleaned up for restart with stabilization delay");
 
   currentState_ = RecordingState::IDLE;
   return true;
@@ -465,7 +499,7 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
   }
 
   // Print system audio format for debugging
-  printf("System audio format: %dHz, %dch, %dbit, BlockAlign: %d\n",
+  DebugOutput("System audio format: %dHz, %dch, %dbit, BlockAlign: %d",
          systemWaveFormat_->nSamplesPerSec,
          systemWaveFormat_->nChannels,
          systemWaveFormat_->wBitsPerSample,
@@ -477,7 +511,7 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
   if (SUCCEEDED(hr)) {
     // Calculate buffer duration in milliseconds
     double bufferDurationMs = (double)bufferFrameCount * 1000.0 / systemWaveFormat_->nSamplesPerSec;
-    printf("System audio buffer: %u frames, %.2f ms duration\n", bufferFrameCount, bufferDurationMs);
+    DebugOutput("System audio buffer: %u frames, %.2f ms duration", bufferFrameCount, bufferDurationMs);
 
     // Calculate optimal sleep time: check at 1/3 of buffer duration for better balance
     // Use slightly longer intervals to prevent oversampling
@@ -485,11 +519,11 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     if (optimalSleepMs < 5) optimalSleepMs = 5;   // Increased minimum from 2ms to 5ms
     if (optimalSleepMs > 15) optimalSleepMs = 15; // Increased maximum from 10ms to 15ms
 
-    printf("Calculated optimal sleep interval: %lu ms\n", optimalSleepMs);
+    DebugOutput("Calculated optimal sleep interval: %lu ms", optimalSleepMs);
   } else {
     // Fallback if buffer size query fails - use more conservative value
-    optimalSleepMs = 8;
-    printf("Using fallback sleep interval: %lu ms\n", optimalSleepMs);
+    optimalSleepMs = 7;
+    DebugOutput("Using fallback sleep interval: %lu ms", optimalSleepMs);
   }
 
   // Initialize audio client in loopback mode
@@ -613,15 +647,7 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
       }
     }
 
-    // Use adaptive sleep with more conservative approach
-    if (systemPacketLength == 0 && micPacketLength == 0) {
-      // No data available, use longer sleep to avoid overpolling
       Sleep(optimalSleepMs);
-    } else {
-      // Data available, use the same optimal sleep to maintain consistent timing
-      // Don't reduce the sleep time when data is available to prevent speed issues
-      Sleep(optimalSleepMs);
-    }
   }
 }
 
