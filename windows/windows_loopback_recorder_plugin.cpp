@@ -24,6 +24,9 @@
 
 namespace windows_loopback_recorder {
 
+// Global flag to reset format detection
+static bool g_resetFormatDetection = true;
+
 // Debug output function that works in Windows
 void DebugOutput(const char* format, ...) {
   char buffer[1024];
@@ -826,18 +829,25 @@ bool WindowsLoopbackRecorderPlugin::InitializeResampler() {
 
   // Check for format stability - compare with previous configuration
   static AudioConfig lastDeviceConfig;
-  bool formatChanged = (lastDeviceConfig.sampleRate != newDeviceConfig.sampleRate) ||
-                       (lastDeviceConfig.channels != newDeviceConfig.channels) ||
-                       (lastDeviceConfig.bitsPerSample != newDeviceConfig.bitsPerSample);
 
-  if (formatChanged) {
-    DebugOutput("Audio format changed: %dHz/%dch/%dbit -> %dHz/%dch/%dbit",
-           lastDeviceConfig.sampleRate, lastDeviceConfig.channels, lastDeviceConfig.bitsPerSample,
+  // Reset flag on new recording session
+  if (g_resetFormatDetection) {
+    DebugOutput("Initial audio format: %dHz/%dch/%dbit",
            newDeviceConfig.sampleRate, newDeviceConfig.channels, newDeviceConfig.bitsPerSample);
+    g_resetFormatDetection = false;
+  } else {
+    // Check for format changes during recording
+    bool formatChanged = (lastDeviceConfig.sampleRate != newDeviceConfig.sampleRate) ||
+                         (lastDeviceConfig.channels != newDeviceConfig.channels) ||
+                         (lastDeviceConfig.bitsPerSample != newDeviceConfig.bitsPerSample);
 
-    // CRITICAL: Stop recording when format changes to prevent audio corruption
-    DebugOutput("ERROR: Audio format change detected during recording - this causes speed issues");
-    return false;  // Force restart instead of continuing with format change
+    if (formatChanged) {
+      DebugOutput("ERROR: Audio format changed during recording: %dHz/%dch/%dbit -> %dHz/%dch/%dbit",
+             lastDeviceConfig.sampleRate, lastDeviceConfig.channels, lastDeviceConfig.bitsPerSample,
+             newDeviceConfig.sampleRate, newDeviceConfig.channels, newDeviceConfig.bitsPerSample);
+      DebugOutput("ERROR: This causes audio speed issues - forcing recording restart");
+      return false;  // Force restart instead of continuing with format change
+    }
   }
 
   deviceConfig_ = newDeviceConfig;
@@ -889,6 +899,9 @@ void WindowsLoopbackRecorderPlugin::CleanupResampler() {
 
   // Clear any cached resampling parameters to force recalculation
   deviceConfig_ = AudioConfig();
+
+  // Reset format change detection for next recording session
+  g_resetFormatDetection = true;
 }
 
 bool WindowsLoopbackRecorderPlugin::ProcessAudioFormat(std::vector<BYTE>& audioBuffer) {
