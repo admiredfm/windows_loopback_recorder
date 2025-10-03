@@ -525,9 +525,9 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     double bufferDurationMs = (double)bufferFrameCount * 1000.0 / systemWaveFormat_->nSamplesPerSec;
     DebugOutput("System audio buffer: %u frames, %.2f ms duration", bufferFrameCount, bufferDurationMs);
 
-    // Use more conservative timing: 1/2 of buffer duration with wider range
-    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 2.0);
-    if (optimalSleepMs < 8) optimalSleepMs = 8;   // Higher minimum to reduce oversampling
+    // Use more conservative timing: 1/3 of buffer duration with wider range
+    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 3.0);
+    if (optimalSleepMs < 9) optimalSleepMs = 9;   // Higher minimum to reduce oversampling
     if (optimalSleepMs > 20) optimalSleepMs = 20; // Higher maximum for stability
 
     DebugOutput("Calculated optimal sleep interval: %lu ms", optimalSleepMs);
