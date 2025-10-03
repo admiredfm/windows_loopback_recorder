@@ -210,18 +210,7 @@ int src_error (SRC_STATE *state) ;
 */
 const char* src_strerror (int error) ;
 
-/*
-** The following enums can be used to set the interpolator type
-** using the function src_set_ratio().
-*/
-
-enum
-{
-	SRC_ERR_SHIFT_BITS			= 8,
-	SRC_ERR_FILTER_LEN			= 9,
-	SRC_ERR_BAD_CONVERTER		= 10,
-	SRC_ERR_BAD_CHANNEL_COUNT	= 11
-} ;
+/* Note: Error codes are already defined above in the main error enum */
 
 #ifdef __cplusplus
 }		/* extern "C" */
