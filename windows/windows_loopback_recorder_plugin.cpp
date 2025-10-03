@@ -505,7 +505,16 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
          systemWaveFormat_->wBitsPerSample,
          systemWaveFormat_->nBlockAlign);
 
-  // Get buffer size to calculate proper capture interval
+  // Initialize audio client in loopback mode FIRST
+  hr = systemAudioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                                     AUDCLNT_STREAMFLAGS_LOOPBACK,
+                                     0, 0, systemWaveFormat_, nullptr);
+  if (FAILED(hr)) {
+    DebugOutput("ERROR: Failed to initialize system audio client: 0x%08X", hr);
+    return hr;
+  }
+
+  // Get buffer size AFTER initialization to calculate proper capture interval
   UINT32 bufferFrameCount;
   hr = systemAudioClient_->GetBufferSize(&bufferFrameCount);
   if (SUCCEEDED(hr)) {
@@ -513,25 +522,16 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     double bufferDurationMs = (double)bufferFrameCount * 1000.0 / systemWaveFormat_->nSamplesPerSec;
     DebugOutput("System audio buffer: %u frames, %.2f ms duration", bufferFrameCount, bufferDurationMs);
 
-    // Calculate optimal sleep time: check at 1/3 of buffer duration for better balance
-    // Use slightly longer intervals to prevent oversampling
-    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 3.0);
-    if (optimalSleepMs < 5) optimalSleepMs = 5;   // Increased minimum from 2ms to 5ms
-    if (optimalSleepMs > 15) optimalSleepMs = 15; // Increased maximum from 10ms to 15ms
+    // Use more conservative timing: 1/2 of buffer duration with wider range
+    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 2.0);
+    if (optimalSleepMs < 8) optimalSleepMs = 8;   // Higher minimum to reduce oversampling
+    if (optimalSleepMs > 20) optimalSleepMs = 20; // Higher maximum for stability
 
     DebugOutput("Calculated optimal sleep interval: %lu ms", optimalSleepMs);
   } else {
-    // Fallback if buffer size query fails - use more conservative value
-    optimalSleepMs = 7;
-    DebugOutput("Using fallback sleep interval: %lu ms", optimalSleepMs);
-  }
-
-  // Initialize audio client in loopback mode
-  hr = systemAudioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                                     AUDCLNT_STREAMFLAGS_LOOPBACK,
-                                     0, 0, systemWaveFormat_, nullptr);
-  if (FAILED(hr)) {
-    return hr;
+    // Fallback if buffer size query fails - use conservative value
+    optimalSleepMs = 12;  // Increased from 7ms to 12ms
+    DebugOutput("ERROR: Failed to get buffer size, using fallback sleep interval: %lu ms", optimalSleepMs);
   }
 
   // Get capture client
@@ -831,12 +831,13 @@ bool WindowsLoopbackRecorderPlugin::InitializeResampler() {
                        (lastDeviceConfig.bitsPerSample != newDeviceConfig.bitsPerSample);
 
   if (formatChanged) {
-    printf("Audio format changed: %dHz/%dch/%dbit -> %dHz/%dch/%dbit\n",
+    DebugOutput("Audio format changed: %dHz/%dch/%dbit -> %dHz/%dch/%dbit",
            lastDeviceConfig.sampleRate, lastDeviceConfig.channels, lastDeviceConfig.bitsPerSample,
            newDeviceConfig.sampleRate, newDeviceConfig.channels, newDeviceConfig.bitsPerSample);
 
-    // Add stabilization delay when format changes
-    Sleep(200);
+    // CRITICAL: Stop recording when format changes to prevent audio corruption
+    DebugOutput("ERROR: Audio format change detected during recording - this causes speed issues");
+    return false;  // Force restart instead of continuing with format change
   }
 
   deviceConfig_ = newDeviceConfig;
