@@ -264,7 +264,7 @@ void WindowsLoopbackRecorderPlugin::HandleMethodCall(
 
 bool WindowsLoopbackRecorderPlugin::StartRecording(const AudioConfig& config) {
   if (currentState_ != RecordingState::IDLE) {
-    printf("StartRecording failed: not in IDLE state (current: %d)\n", static_cast<int>(currentState_));
+    printf("StartRecording failed: not in IDLE state (current: %d)\n", static_cast<int>(currentState_.load()));
     return false;
   }
 
