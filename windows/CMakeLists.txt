@@ -51,23 +51,18 @@ endif()
 # Fetch libsamplerate for high-quality audio resampling
 include(FetchContent)
 
+# Configure libsamplerate build options before fetching
+set(BUILD_TESTING OFF CACHE BOOL "Disable libsamplerate tests" FORCE)
+set(LIBSAMPLERATE_EXAMPLES OFF CACHE BOOL "Disable libsamplerate examples" FORCE)
+set(LIBSAMPLERATE_INSTALL OFF CACHE BOOL "Disable libsamplerate install" FORCE)
+
 FetchContent_Declare(
   libsamplerate
   GIT_REPOSITORY https://github.com/libsndfile/libsamplerate.git
-  GIT_TAG        1.0.2
+  GIT_TAG        main  # Use main branch instead of non-existent tag
 )
 
-FetchContent_GetProperties(libsamplerate)
-if(NOT libsamplerate_POPULATED)
-  FetchContent_Populate(libsamplerate)
-
-  # Configure libsamplerate build options
-  set(BUILD_TESTING OFF CACHE BOOL "Disable libsamplerate tests" FORCE)
-  set(LIBSAMPLERATE_EXAMPLES OFF CACHE BOOL "Disable libsamplerate examples" FORCE)
-  set(LIBSAMPLERATE_INSTALL OFF CACHE BOOL "Disable libsamplerate install" FORCE)
-
-  add_subdirectory(${libsamplerate_SOURCE_DIR} ${libsamplerate_BINARY_DIR})
-endif()
+FetchContent_MakeAvailable(libsamplerate)
 
 # Source include directories and library dependencies. Add any plugin-specific
 # dependencies here.
