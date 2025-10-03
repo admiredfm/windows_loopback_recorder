@@ -14,8 +14,15 @@ class MethodChannelWindowsLoopbackRecorder extends WindowsLoopbackRecorderPlatfo
   @visibleForTesting
   final eventChannel = const EventChannel('windows_loopback_recorder/audio_stream');
 
+  /// The event channel used for volume monitoring data.
+  @visibleForTesting
+  final volumeEventChannel = const EventChannel('windows_loopback_recorder/volume_stream');
+
   StreamSubscription<dynamic>? _audioStreamSubscription;
   final StreamController<Uint8List> _audioStreamController = StreamController<Uint8List>.broadcast();
+
+  StreamSubscription<dynamic>? _volumeStreamSubscription;
+  final StreamController<VolumeData> _volumeStreamController = StreamController<VolumeData>.broadcast();
 
   @override
   Future<String?> getPlatformVersion() async {
@@ -106,6 +113,26 @@ class MethodChannelWindowsLoopbackRecorder extends WindowsLoopbackRecorderPlatfo
     return AudioConfig();
   }
 
+  @override
+  Future<bool> startVolumeMonitoring() async {
+    final result = await methodChannel.invokeMethod<bool>('startVolumeMonitoring');
+    if (result == true) {
+      _setupVolumeStream();
+    }
+    return result ?? false;
+  }
+
+  @override
+  Future<bool> stopVolumeMonitoring() async {
+    final result = await methodChannel.invokeMethod<bool>('stopVolumeMonitoring');
+    await _volumeStreamSubscription?.cancel();
+    _volumeStreamSubscription = null;
+    return result ?? false;
+  }
+
+  @override
+  Stream<VolumeData> get volumeStream => _volumeStreamController.stream;
+
   void _setupAudioStream() {
     _audioStreamSubscription = eventChannel.receiveBroadcastStream().listen(
       (dynamic data) {
@@ -119,8 +146,35 @@ class MethodChannelWindowsLoopbackRecorder extends WindowsLoopbackRecorderPlatfo
     );
   }
 
+  void _setupVolumeStream() {
+    _volumeStreamSubscription = volumeEventChannel.receiveBroadcastStream().listen(
+      (dynamic data) {
+        try {
+          if (data is Map) {
+            // Convert to Map<String, dynamic> safely
+            final Map<String, dynamic> volumeMap = {};
+            data.forEach((key, value) {
+              if (key is String) {
+                volumeMap[key] = value;
+              }
+            });
+            final volumeData = VolumeData.fromMap(volumeMap);
+            _volumeStreamController.add(volumeData);
+          }
+        } catch (e) {
+          debugPrint('Volume data parsing error: $e');
+        }
+      },
+      onError: (error) {
+        debugPrint('Volume stream error: $error');
+      },
+    );
+  }
+
   void dispose() {
     _audioStreamSubscription?.cancel();
+    _volumeStreamSubscription?.cancel();
     _audioStreamController.close();
+    _volumeStreamController.close();
   }
 }

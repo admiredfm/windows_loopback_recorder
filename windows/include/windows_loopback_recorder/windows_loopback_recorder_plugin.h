@@ -88,6 +88,14 @@ class WindowsLoopbackRecorderPlugin : public flutter::Plugin {
   std::vector<float> ConvertToFloat(const std::vector<BYTE>& byteBuffer);
   std::vector<BYTE> ConvertFromFloat(const std::vector<float>& floatBuffer);
 
+  // Volume monitoring methods
+  double CalculateRMS(const std::vector<BYTE>& audioBuffer);
+  double RMSToDecibels(double rms);
+  int DecibelsToPercentage(double db);
+  void SendVolumeUpdate(double rms);
+  bool StartVolumeMonitoring();
+  bool StopVolumeMonitoring();
+
   // Audio capture thread management
   std::thread captureThread_;
   std::atomic<bool> shouldStop_{false};
@@ -115,6 +123,11 @@ class WindowsLoopbackRecorderPlugin : public flutter::Plugin {
   // Event stream for sending audio data to Dart
   std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> eventSink_ = nullptr;
   std::mutex eventSinkMutex_;
+
+  // Volume monitoring
+  std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> volumeEventSink_ = nullptr;
+  std::mutex volumeEventSinkMutex_;
+  std::atomic<bool> volumeMonitoringEnabled_{false};
 
   // COM initialization
   bool comInitialized_ = false;

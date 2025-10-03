@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'windows_loopback_recorder_platform_interface.dart';
 
 /// Export the API classes for external use
-export 'windows_loopback_recorder_platform_interface.dart' show RecordingState, AudioConfig;
+export 'windows_loopback_recorder_platform_interface.dart' show RecordingState, AudioConfig, VolumeData;
 
 /// Windows Loopback Recorder Plugin
 ///
@@ -77,4 +77,26 @@ class WindowsLoopbackRecorder {
   Future<AudioConfig> getAudioFormat() {
     return _platform.getAudioFormat();
   }
+
+  /// Start volume monitoring
+  ///
+  /// Begins monitoring the mixed audio volume (system + microphone)
+  /// Returns true if volume monitoring started successfully
+  Future<bool> startVolumeMonitoring() {
+    return _platform.startVolumeMonitoring();
+  }
+
+  /// Stop volume monitoring
+  ///
+  /// Stops monitoring the audio volume
+  /// Returns true if volume monitoring stopped successfully
+  Future<bool> stopVolumeMonitoring() {
+    return _platform.stopVolumeMonitoring();
+  }
+
+  /// Get the volume data stream
+  ///
+  /// Returns a Stream of VolumeData containing real-time volume information
+  /// including RMS, decibels, and percentage values
+  Stream<VolumeData> get volumeStream => _platform.volumeStream;
 }

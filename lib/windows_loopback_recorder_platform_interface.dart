@@ -39,6 +39,38 @@ class AudioConfig {
   }
 }
 
+/// Volume data from audio monitoring
+class VolumeData {
+  final double rms;        // Root Mean Square value (0.0 - 1.0)
+  final double decibels;   // Decibel value (-96.0 dB - 0.0 dB)
+  final int percentage;    // Percentage value (0% - 100%)
+  final int timestamp;     // Timestamp in milliseconds
+
+  const VolumeData({
+    required this.rms,
+    required this.decibels,
+    required this.percentage,
+    required this.timestamp,
+  });
+
+  factory VolumeData.fromMap(Map<String, dynamic> map) {
+    return VolumeData(
+      rms: (map['rms'] as num).toDouble(),
+      decibels: (map['db'] as num).toDouble(),
+      percentage: map['percentage'] as int,
+      timestamp: map['timestamp'] as int,
+    );
+  }
+
+  @override
+  String toString() {
+    return 'VolumeData(rms: ${rms.toStringAsFixed(3)}, '
+           'db: ${decibels.toStringAsFixed(1)}dB, '
+           'percentage: $percentage%, '
+           'timestamp: $timestamp)';
+  }
+}
+
 abstract class WindowsLoopbackRecorderPlatform extends PlatformInterface {
   /// Constructs a WindowsLoopbackRecorderPlatform.
   WindowsLoopbackRecorderPlatform() : super(token: _token);
@@ -112,5 +144,20 @@ abstract class WindowsLoopbackRecorderPlatform extends PlatformInterface {
   /// Get actual audio format being used
   Future<AudioConfig> getAudioFormat() {
     throw UnimplementedError('getAudioFormat() has not been implemented.');
+  }
+
+  /// Start volume monitoring
+  Future<bool> startVolumeMonitoring() {
+    throw UnimplementedError('startVolumeMonitoring() has not been implemented.');
+  }
+
+  /// Stop volume monitoring
+  Future<bool> stopVolumeMonitoring() {
+    throw UnimplementedError('stopVolumeMonitoring() has not been implemented.');
+  }
+
+  /// Volume stream
+  Stream<VolumeData> get volumeStream {
+    throw UnimplementedError('volumeStream has not been implemented.');
   }
 }

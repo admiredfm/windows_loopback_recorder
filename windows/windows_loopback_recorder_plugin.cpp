@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
+#include <chrono>
 
 namespace windows_loopback_recorder {
 
@@ -31,9 +33,14 @@ void WindowsLoopbackRecorderPlugin::RegisterWithRegistrar(
           registrar->messenger(), "windows_loopback_recorder/audio_stream",
           &flutter::StandardMethodCodec::GetInstance());
 
+  auto volume_event_channel =
+      std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
+          registrar->messenger(), "windows_loopback_recorder/volume_stream",
+          &flutter::StandardMethodCodec::GetInstance());
+
   auto plugin = std::make_unique<WindowsLoopbackRecorderPlugin>();
 
-  // Set up event channel handler
+  // Set up audio event channel handler
   auto handler = std::make_unique<flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
       [plugin_pointer = plugin.get()](
           const flutter::EncodableValue* arguments,
@@ -54,7 +61,31 @@ void WindowsLoopbackRecorderPlugin::RegisterWithRegistrar(
         return nullptr;
       });
 
+  // Set up volume event channel handler
+  auto volume_handler = std::make_unique<flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
+      [plugin_pointer = plugin.get()](
+          const flutter::EncodableValue* arguments,
+          std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&& events)
+          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
+        {
+          std::lock_guard<std::mutex> lock(plugin_pointer->volumeEventSinkMutex_);
+          plugin_pointer->volumeEventSink_ = std::move(events);
+          plugin_pointer->volumeMonitoringEnabled_ = true;
+        }
+        return nullptr;
+      },
+      [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments)
+          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
+        {
+          std::lock_guard<std::mutex> lock(plugin_pointer->volumeEventSinkMutex_);
+          plugin_pointer->volumeEventSink_.reset();
+          plugin_pointer->volumeMonitoringEnabled_ = false;
+        }
+        return nullptr;
+      });
+
   event_channel->SetStreamHandler(std::move(handler));
+  volume_event_channel->SetStreamHandler(std::move(volume_handler));
 
   channel->SetMethodCallHandler(
       [plugin_pointer = plugin.get()](const auto &call, auto result) {
@@ -204,6 +235,14 @@ void WindowsLoopbackRecorderPlugin::HandleMethodCall(
     format_info[flutter::EncodableValue("channels")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.channels));
     format_info[flutter::EncodableValue("bitsPerSample")] = flutter::EncodableValue(static_cast<int32_t>(audioConfig_.bitsPerSample));
     result->Success(flutter::EncodableValue(format_info));
+
+  } else if (method_call.method_name() == "startVolumeMonitoring") {
+    bool success = StartVolumeMonitoring();
+    result->Success(flutter::EncodableValue(success));
+
+  } else if (method_call.method_name() == "stopVolumeMonitoring") {
+    bool success = StopVolumeMonitoring();
+    result->Success(flutter::EncodableValue(success));
 
   } else {
     result->NotImplemented();
@@ -626,6 +665,12 @@ void WindowsLoopbackRecorderPlugin::MixAudioBuffers(const BYTE* systemBuffer, co
 
   // Apply user-defined audio format processing (resampling, channel conversion)
   ProcessAudioFormat(outputBuffer);
+
+  // Calculate and send volume update if monitoring is enabled
+  if (volumeMonitoringEnabled_ && !outputBuffer.empty()) {
+    double rms = CalculateRMS(outputBuffer);
+    SendVolumeUpdate(rms);
+  }
 }
 
 // Audio processing methods implementation
@@ -805,6 +850,97 @@ std::vector<BYTE> WindowsLoopbackRecorderPlugin::ConvertFromFloat(const std::vec
   }
 
   return byteBuffer;
+}
+
+// Volume monitoring methods implementation
+double WindowsLoopbackRecorderPlugin::CalculateRMS(const std::vector<BYTE>& audioBuffer) {
+  if (audioBuffer.empty()) {
+    return 0.0;
+  }
+
+  // Convert BYTE buffer to 16-bit samples
+  const int16_t* samples = reinterpret_cast<const int16_t*>(audioBuffer.data());
+  size_t sampleCount = audioBuffer.size() / 2;
+
+  if (sampleCount == 0) {
+    return 0.0;
+  }
+
+  // Calculate RMS (Root Mean Square)
+  double sum = 0.0;
+  for (size_t i = 0; i < sampleCount; i++) {
+    double sample = static_cast<double>(samples[i]) / 32768.0; // Normalize to [-1, 1]
+    sum += sample * sample;
+  }
+
+  double rms = sqrt(sum / sampleCount);
+  return rms;
+}
+
+double WindowsLoopbackRecorderPlugin::RMSToDecibels(double rms) {
+  if (rms <= 0.0) {
+    return -96.0; // Return -96dB for silence (practical minimum)
+  }
+
+  // Convert RMS to decibels: 20 * log10(rms)
+  // Reference level: 1.0 RMS = 0 dB
+  double db = 20.0 * log10(rms);
+
+  // Clamp to reasonable range
+  if (db < -96.0) db = -96.0;
+  if (db > 0.0) db = 0.0;
+
+  return db;
+}
+
+int WindowsLoopbackRecorderPlugin::DecibelsToPercentage(double db) {
+  // Convert dB to percentage
+  // -96dB = 0%, 0dB = 100%
+  // Linear mapping: percentage = (db + 96) / 96 * 100
+
+  if (db <= -96.0) return 0;
+  if (db >= 0.0) return 100;
+
+  int percentage = static_cast<int>((db + 96.0) / 96.0 * 100.0);
+
+  // Ensure within bounds
+  if (percentage < 0) percentage = 0;
+  if (percentage > 100) percentage = 100;
+
+  return percentage;
+}
+
+void WindowsLoopbackRecorderPlugin::SendVolumeUpdate(double rms) {
+  if (!volumeMonitoringEnabled_) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(volumeEventSinkMutex_);
+  if (volumeEventSink_) {
+    double db = RMSToDecibels(rms);
+    int percentage = DecibelsToPercentage(db);
+
+    // Create volume data map
+    flutter::EncodableMap volumeData;
+    volumeData[flutter::EncodableValue("rms")] = flutter::EncodableValue(rms);
+    volumeData[flutter::EncodableValue("db")] = flutter::EncodableValue(db);
+    volumeData[flutter::EncodableValue("percentage")] = flutter::EncodableValue(percentage);
+    volumeData[flutter::EncodableValue("timestamp")] = flutter::EncodableValue(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+
+    volumeEventSink_->Success(flutter::EncodableValue(volumeData));
+  }
+}
+
+bool WindowsLoopbackRecorderPlugin::StartVolumeMonitoring() {
+  volumeMonitoringEnabled_ = true;
+  return true;
+}
+
+bool WindowsLoopbackRecorderPlugin::StopVolumeMonitoring() {
+  volumeMonitoringEnabled_ = false;
+  return true;
 }
 
 }  // namespace windows_loopback_recorder

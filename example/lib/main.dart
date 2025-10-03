@@ -29,6 +29,11 @@ class _MyAppState extends State<MyApp> {
   StreamSubscription<Uint8List>? _audioStreamSubscription;
   String _statusMessage = '';
 
+  // Volume monitoring
+  StreamSubscription<VolumeData>? _volumeStreamSubscription;
+  bool _volumeMonitoringEnabled = false;
+  VolumeData? _currentVolumeData;
+
   // Audio recording and playback
   final List<Uint8List> _audioChunks = [];
   String? _savedFilePath;
@@ -47,7 +52,9 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     _audioStreamSubscription?.cancel();
+    _volumeStreamSubscription?.cancel();
     _recorder.stopRecording();
+    _recorder.stopVolumeMonitoring();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -117,6 +124,57 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
+  void _setupVolumeStream() {
+    _volumeStreamSubscription = _recorder.volumeStream.listen(
+      (volumeData) {
+        if (!mounted) return;
+
+        setState(() {
+          _currentVolumeData = volumeData;
+        });
+      },
+      onError: (error) {
+        _setStatusMessage('音量流错误: $error');
+      },
+    );
+  }
+
+  Future<void> _startVolumeMonitoring() async {
+    try {
+      bool success = await _recorder.startVolumeMonitoring();
+      if (success) {
+        _setupVolumeStream();
+        setState(() {
+          _volumeMonitoringEnabled = true;
+        });
+        _setStatusMessage('音量监听已开启');
+      } else {
+        _setStatusMessage('开启音量监听失败');
+      }
+    } catch (e) {
+      _setStatusMessage('开启音量监听出错: $e');
+    }
+  }
+
+  Future<void> _stopVolumeMonitoring() async {
+    try {
+      bool success = await _recorder.stopVolumeMonitoring();
+      if (success) {
+        await _volumeStreamSubscription?.cancel();
+        _volumeStreamSubscription = null;
+        setState(() {
+          _volumeMonitoringEnabled = false;
+          _currentVolumeData = null;
+        });
+        _setStatusMessage('音量监听已关闭');
+      } else {
+        _setStatusMessage('关闭音量监听失败');
+      }
+    } catch (e) {
+      _setStatusMessage('关闭音量监听出错: $e');
+    }
+  }
+
   Future<void> _updateRecordingState() async {
     try {
       RecordingState state = await _recorder.getRecordingState();
@@ -175,6 +233,11 @@ class _MyAppState extends State<MyApp> {
           _audioChunks.clear(); // 清空之前的录音数据
           _savedFilePath = null; // 清空保存的文件路径
         });
+
+        // 自动启动音量监听
+        if (!_volumeMonitoringEnabled) {
+          await _startVolumeMonitoring();
+        }
 
         // 延迟获取音频格式，避免时序问题
         Timer(Duration(milliseconds: 500), () async {
@@ -437,6 +500,18 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  Color _getVolumeColor(int percentage) {
+    if (percentage >= 80) {
+      return Colors.red;
+    } else if (percentage >= 60) {
+      return Colors.orange;
+    } else if (percentage >= 30) {
+      return Colors.green;
+    } else {
+      return Colors.blue;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -504,6 +579,133 @@ class _MyAppState extends State<MyApp> {
                             border: Border.all(color: Colors.blue.shade200),
                           ),
                           child: Text(_statusMessage, style: TextStyle(color: Colors.blue.shade800)),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+
+              SizedBox(height: 16),
+
+              // Volume Monitoring
+              Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('音量监听', style: Theme.of(context).textTheme.titleMedium),
+                          ElevatedButton.icon(
+                            onPressed: _volumeMonitoringEnabled ? _stopVolumeMonitoring : _startVolumeMonitoring,
+                            icon: Icon(_volumeMonitoringEnabled ? Icons.volume_off : Icons.volume_up),
+                            label: Text(_volumeMonitoringEnabled ? '关闭监听' : '开启监听'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _volumeMonitoringEnabled ? Colors.red : Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      SizedBox(height: 16),
+
+                      if (_volumeMonitoringEnabled && _currentVolumeData != null) ...[
+                        // Volume percentage bar
+                        Row(
+                          children: [
+                            Text('音量: ', style: TextStyle(fontWeight: FontWeight.w500)),
+                            Expanded(
+                              child: LinearProgressIndicator(
+                                value: _currentVolumeData!.percentage / 100.0,
+                                backgroundColor: Colors.grey[300],
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  _getVolumeColor(_currentVolumeData!.percentage),
+                                ),
+                                minHeight: 20,
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              '${_currentVolumeData!.percentage}%',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: _getVolumeColor(_currentVolumeData!.percentage),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        SizedBox(height: 8),
+
+                        // Volume details
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '分贝值: ${_currentVolumeData!.decibels.toStringAsFixed(1)} dB',
+                                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                  ),
+                                  Text(
+                                    'RMS: ${_currentVolumeData!.rms.toStringAsFixed(3)}',
+                                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Volume level indicator
+                            Container(
+                              width: 60,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: List.generate(10, (index) {
+                                  final level = (9 - index) * 10; // 90, 80, 70, ... 0
+                                  final isActive = _currentVolumeData!.percentage > level;
+                                  final color = level >= 80 ? Colors.red :
+                                              level >= 60 ? Colors.orange :
+                                              Colors.green;
+                                  return Container(
+                                    height: 3,
+                                    margin: EdgeInsets.symmetric(horizontal: 4, vertical: 0.5),
+                                    decoration: BoxDecoration(
+                                      color: isActive ? color : Colors.grey[300],
+                                      borderRadius: BorderRadius.circular(1),
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (_volumeMonitoringEnabled) ...[
+                        Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Text(
+                              '等待音量数据...',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Text(
+                              '音量监听未启用',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                          ),
                         ),
                       ],
                     ],
