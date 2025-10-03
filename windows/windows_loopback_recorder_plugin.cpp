@@ -422,6 +422,26 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
          systemWaveFormat_->wBitsPerSample,
          systemWaveFormat_->nBlockAlign);
 
+  // Get buffer size to calculate proper capture interval
+  UINT32 bufferFrameCount;
+  hr = systemAudioClient_->GetBufferSize(&bufferFrameCount);
+  if (SUCCEEDED(hr)) {
+    // Calculate buffer duration in milliseconds
+    double bufferDurationMs = (double)bufferFrameCount * 1000.0 / systemWaveFormat_->nSamplesPerSec;
+    printf("System audio buffer: %u frames, %.2f ms duration\n", bufferFrameCount, bufferDurationMs);
+
+    // Calculate optimal sleep time: check at 1/4 of buffer duration, but minimum 2ms, maximum 10ms
+    optimalSleepMs = static_cast<DWORD>(bufferDurationMs / 4.0);
+    if (optimalSleepMs < 2) optimalSleepMs = 2;
+    if (optimalSleepMs > 10) optimalSleepMs = 10;
+
+    printf("Calculated optimal sleep interval: %lu ms\n", optimalSleepMs);
+  } else {
+    // Fallback if buffer size query fails
+    optimalSleepMs = 5;
+    printf("Using fallback sleep interval: %lu ms\n", optimalSleepMs);
+  }
+
   // Initialize audio client in loopback mode
   hr = systemAudioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED,
                                      AUDCLNT_STREAMFLAGS_LOOPBACK,
@@ -543,7 +563,14 @@ void WindowsLoopbackRecorderPlugin::CaptureThreadFunction() {
       }
     }
 
-    Sleep(1); // Small delay to prevent high CPU usage
+    // Use adaptive sleep based on calculated optimal interval
+    if (systemPacketLength == 0 && micPacketLength == 0) {
+      // No data available, use optimal sleep time
+      Sleep(optimalSleepMs);
+    } else {
+      // Data available, use shorter interval to process promptly
+      Sleep(optimalSleepMs / 2);
+    }
   }
 }
 

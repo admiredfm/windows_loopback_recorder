@@ -127,6 +127,9 @@ class WindowsLoopbackRecorderPlugin : public flutter::Plugin {
   // Volume monitoring
   std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> volumeEventSink_ = nullptr;
   std::mutex volumeEventSinkMutex_;
+
+  // Adaptive capture timing
+  DWORD optimalSleepMs = 5; // Default fallback value
   std::atomic<bool> volumeMonitoringEnabled_{false};
 
   // COM initialization
