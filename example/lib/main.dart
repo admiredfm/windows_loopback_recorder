@@ -220,8 +220,8 @@ class _MyAppState extends State<MyApp> {
       // 开始录制 - 使用高质量音频配置以获得最佳音质
       bool success = await _recorder.startRecording(
         config: AudioConfig(
-          sampleRate: 44100,  // 使用标准CD质量采样率
-          channels: 2,        // 立体声以保留音频空间信息
+          sampleRate: 16000,  // 使用标准CD质量采样率
+          channels: 1,        // 立体声以保留音频空间信息
           bitsPerSample: 16,  // 16位深度平衡质量和文件大小
         ),
       );
@@ -244,7 +244,12 @@ class _MyAppState extends State<MyApp> {
           try {
             _actualAudioFormat = await _recorder.getAudioFormat();
             if (mounted) {
-              _setStatusMessage('录制中 - 格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
+              print('=== 音频格式调试信息 ===');
+              print('用户配置: 44100Hz, 2ch, 16bit');
+              print('实际格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
+              print('重采样状态: ${44100 != _actualAudioFormat!.sampleRate || 2 != _actualAudioFormat!.channels ? "需要" : "不需要"}');
+
+              _setStatusMessage('录制中 - 实际格式: ${_actualAudioFormat!.sampleRate}Hz, ${_actualAudioFormat!.channels}ch, ${_actualAudioFormat!.bitsPerSample}bit');
             }
           } catch (e) {
             // 如果获取格式失败，使用默认配置
