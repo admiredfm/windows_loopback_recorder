@@ -59,7 +59,7 @@ set(LIBSAMPLERATE_INSTALL OFF CACHE BOOL "Disable libsamplerate install" FORCE)
 FetchContent_Declare(
   libsamplerate
   GIT_REPOSITORY https://github.com/libsndfile/libsamplerate.git
-  GIT_TAG        main  # Use main branch instead of non-existent tag
+  GIT_TAG        master  # Use master branch
 )
 
 FetchContent_MakeAvailable(libsamplerate)
