@@ -397,8 +397,8 @@ HRESULT WindowsLoopbackRecorderPlugin::InitializeSystemAudioCapture() {
     return E_FAIL;
   }
 
-  // Get default render device for loopback capture
-  HRESULT hr = deviceEnumerator_->GetDefaultAudioEndpoint(eRender, eConsole, &systemDevice_);
+  // Get default render device for loopback capture - using Communications role for better quality
+  HRESULT hr = deviceEnumerator_->GetDefaultAudioEndpoint(eRender, eCommunications, &systemDevice_);
   if (FAILED(hr)) {
     return hr;
   }
