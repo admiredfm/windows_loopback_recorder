@@ -264,9 +264,11 @@ void WindowsLoopbackRecorderPlugin::HandleMethodCall(
 
 bool WindowsLoopbackRecorderPlugin::StartRecording(const AudioConfig& config) {
   if (currentState_ != RecordingState::IDLE) {
+    printf("StartRecording failed: not in IDLE state (current: %d)\n", static_cast<int>(currentState_));
     return false;
   }
 
+  printf("=== Starting new recording session ===\n");
   audioConfig_ = config;
 
   // Initialize audio capture
@@ -326,6 +328,46 @@ bool WindowsLoopbackRecorderPlugin::StopRecording() {
 
   // Clean up resampler
   CleanupResampler();
+
+  // IMPORTANT: Release WASAPI resources to ensure clean restart
+  if (systemCaptureClient_) {
+    systemCaptureClient_->Release();
+    systemCaptureClient_ = nullptr;
+  }
+  if (micCaptureClient_) {
+    micCaptureClient_->Release();
+    micCaptureClient_ = nullptr;
+  }
+  if (systemAudioClient_) {
+    systemAudioClient_->Release();
+    systemAudioClient_ = nullptr;
+  }
+  if (micAudioClient_) {
+    micAudioClient_->Release();
+    micAudioClient_ = nullptr;
+  }
+  if (systemDevice_) {
+    systemDevice_->Release();
+    systemDevice_ = nullptr;
+  }
+  if (micDevice_) {
+    micDevice_->Release();
+    micDevice_ = nullptr;
+  }
+
+  if (systemWaveFormat_) {
+    CoTaskMemFree(systemWaveFormat_);
+    systemWaveFormat_ = nullptr;
+  }
+  if (micWaveFormat_) {
+    CoTaskMemFree(micWaveFormat_);
+    micWaveFormat_ = nullptr;
+  }
+
+  // Reset adaptive timing to force recalculation
+  optimalSleepMs = 5; // Reset to default
+
+  printf("WASAPI resources cleaned up for restart\n");
 
   currentState_ = RecordingState::IDLE;
   return true;
