@@ -26,8 +26,8 @@
 #include <propvarutil.h>
 #include <combaseapi.h>
 
-// Simple built-in resampling (no external dependencies)
-// #include <samplerate.h>  // Comment out for built-in resampling
+// libsamplerate for high-quality audio resampling
+#include <samplerate.h>
 
 namespace windows_loopback_recorder {
 
@@ -108,8 +108,8 @@ class WindowsLoopbackRecorderPlugin : public flutter::Plugin {
   AudioConfig audioConfig_;
   AudioConfig deviceConfig_; // Store actual device format
 
-  // Simple resampling configuration (built-in)
-  double resamplePosition_ = 0.0;
+  // libsamplerate resampling configuration
+  SRC_STATE* srcState_ = nullptr;
   bool resamplingEnabled_ = false;
 
   // Event stream for sending audio data to Dart
